@@ -1,0 +1,15 @@
+{
+  "originHash" : "ce3f4b25187f6788f626dcbe9b01cbcf81a2e4f28da4f0222a0aba75f9ff38fd",
+  "pins" : [
+    {
+      "identity" : "perso-interactive-ondevice-sdk-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/perso-ai/perso-interactive-ondevice-sdk-swift",
+      "state" : {
+        "revision" : "544a6db15e4f7e5e564e7c0def28b63cd934248b",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}
