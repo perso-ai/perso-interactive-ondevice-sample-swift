@@ -17,13 +17,19 @@ final class ModelSelectViewModel: ObservableObject {
     @Published var models: [ModelStyle] = []
 
     /// Download/Update progress for each model item
-    @Published var itemsProgress: [UUID: Progress] = [:]
+    @Published var itemsProgress: [String: Progress] = [:]
 
     /// Loading state
     @Published var isLoading: Bool = false
 
     /// Error message if fetch fails
     @Published var errorMessage: String?
+
+    /// Error message if download fails
+    @Published var downloadError: String?
+
+    /// Deleting state
+    @Published var isDeleting: Bool = false
 
     // MARK: - Subjects
 
@@ -43,6 +49,15 @@ final class ModelSelectViewModel: ObservableObject {
     func fetchModelStyles() async {
         isLoading = true
         errorMessage = nil
+
+        // Check API Key is valid
+        do {
+            let _ = try await PersoInteractive.fetchAvailableLLMModels()
+        } catch {
+            errorMessage = "No models available"
+            isLoading = false
+            return
+        }
 
         do {
             let modelStyles = try await PersoInteractive.fetchAvailableModelStyles()
@@ -82,10 +97,18 @@ final class ModelSelectViewModel: ObservableObject {
         await fetchModelStyles()
     }
 
+    /// Deletes all downloaded model resources and refreshes the list
+    func deleteAllDownloadedModels() async {
+        isDeleting = true
+        PersoInteractive.cleanModelResources()
+        await fetchModelStyles()
+        isDeleting = false
+    }
+
     // MARK: - Private Methods
 
     /// Downloads or updates model resources and tracks progress
-    private func loadModelResources(modelStyle: ModelStyle, for itemID: UUID) async {
+    private func loadModelResources(modelStyle: ModelStyle, for itemID: String) async {
         do {
             let stream = PersoInteractive.loadModelStyle(with: modelStyle)
 
@@ -99,9 +122,15 @@ final class ModelSelectViewModel: ObservableObject {
                 }
             }
 
+            // Stream이 .finished 없이 정상 종료된 경우 cleanup
+            if self.itemsProgress[itemID] != nil {
+                self.itemsProgress[itemID] = nil
+                await fetchModelStyles()
+            }
+
         } catch {
             self.itemsProgress[itemID] = nil
-            errorMessage = "Download failed: \(error.localizedDescription)"
+            downloadError = "Download failed: \(error.localizedDescription)"
         }
     }
 

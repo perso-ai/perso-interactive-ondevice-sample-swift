@@ -12,10 +12,23 @@ struct ModelSelectView: View {
     @StateObject private var viewModel: ModelSelectViewModel
     @State private var items: [ModelSelectView.Item] = []
     @State private var selectedItem: ModelSelectView.Item?
+    @State private var showDeleteConfirmation = false
 
     init(path: Binding<[Screen]>) {
         self._path = path
         self._viewModel = .init(wrappedValue: .init())
+    }
+
+    private var downloadedItems: [Item] {
+        items.filter { $0.modelStyle.availability == .available }
+            .sorted { ($0.modelStyle.displayName ?? $0.modelStyle.name)
+                .localizedCaseInsensitiveCompare($1.modelStyle.displayName ?? $1.modelStyle.name) == .orderedAscending }
+    }
+
+    private var notDownloadedItems: [Item] {
+        items.filter { $0.modelStyle.availability != .available }
+            .sorted { ($0.modelStyle.displayName ?? $0.modelStyle.name)
+                .localizedCaseInsensitiveCompare($1.modelStyle.displayName ?? $1.modelStyle.name) == .orderedAscending }
     }
 
     var body: some View {
@@ -27,7 +40,9 @@ struct ModelSelectView: View {
             Divider()
 
             // Model List or Loading
-            if items.isEmpty {
+            if viewModel.errorMessage != nil {
+                errorView
+            } else if viewModel.isLoading {
                 loadingView
             } else {
                 modelListView
@@ -36,16 +51,24 @@ struct ModelSelectView: View {
         .task {
             await viewModel.fetchModelStyles()
         }
-        .onChange(of: viewModel.models) { _, modelStyles in
+        .onReceive(viewModel.$models) { modelStyles in
             updateItems(with: modelStyles)
         }
         .onReceive(viewModel.modelStatusUpdated) { modelStyle in
             updateSelectedItem(with: modelStyle)
         }
         .onReceive(viewModel.moveToMainTabScreen) { modelStyle in
-            path.append(.main(modelStyle))
+            path.append(.configure(modelStyle))
         }
         .navigationBarBackButtonHidden()
+        .alert("Download Failed", isPresented: Binding(
+            get: { viewModel.downloadError != nil },
+            set: { if !$0 { viewModel.downloadError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(viewModel.downloadError ?? "")
+        }
     }
 
     // MARK: - Subviews
@@ -74,21 +97,132 @@ struct ModelSelectView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var errorView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+
+            Text(viewModel.errorMessage ?? "An error occurred")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task {
+                    await viewModel.fetchModelStyles()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Retry")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(Color.accentColor)
+                .foregroundStyle(.white)
+                .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var modelListView: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
-                ForEach(items) { item in
-                    ModelItemRow(
-                        item: item,
-                        isSelected: selectedItem?.id == item.id,
-                        progress: viewModel.itemsProgress[item.id],
-                        onTap: { selectItem(item) },
-                        onAction: { viewModel.setItem(item) }
+                // Downloaded Models Section
+                if !downloadedItems.isEmpty {
+                    sectionHeader(
+                        title: "Downloaded Models",
+                        count: downloadedItems.count,
+                        showDeleteButton: true
                     )
+
+                    ForEach(downloadedItems) { item in
+                        ModelItemRow(
+                            item: item,
+                            isSelected: selectedItem?.id == item.id,
+                            progress: viewModel.itemsProgress[item.id]
+                        )
+                        .onTap { selectItem(item) }
+                        .onAction { viewModel.setItem(item) }
+                    }
+                }
+
+                // Available for Download Section
+                if !notDownloadedItems.isEmpty {
+                    if !downloadedItems.isEmpty {
+                        Divider()
+                            .padding(.vertical, 4)
+                    }
+
+                    sectionHeader(
+                        title: "Available for Download",
+                        count: notDownloadedItems.count,
+                        showDeleteButton: false
+                    )
+
+                    ForEach(notDownloadedItems) { item in
+                        ModelItemRow(
+                            item: item,
+                            isSelected: selectedItem?.id == item.id,
+                            progress: viewModel.itemsProgress[item.id]
+                        )
+                        .onTap { selectItem(item) }
+                        .onAction { viewModel.setItem(item) }
+                    }
                 }
             }
             .padding()
         }
+        .alert("Delete All Models", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await viewModel.deleteAllDownloadedModels()
+                }
+            }
+        } message: {
+            Text("All downloaded models will be deleted. You will need to re-download them to use again.")
+        }
+    }
+
+    private func sectionHeader(title: String, count: Int, showDeleteButton: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text("\(count) model\(count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if showDeleteButton {
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    if viewModel.isDeleting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("Delete All")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                    }
+                }
+                .disabled(viewModel.isDeleting || downloadedItems.isEmpty)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Private Methods
@@ -111,16 +245,12 @@ struct ModelSelectView: View {
     }
 
     private func updateSelectedItem(with modelStyle: ModelStyle) {
-        // Update the item in the items array to trigger UI refresh
         if let index = items.firstIndex(where: { $0.modelStyle.name == modelStyle.name }) {
-            var updatedItem = items[index]
-            updatedItem.modelStyle = modelStyle
-            items[index] = updatedItem
+            items[index].modelStyle = modelStyle
+            if selectedItem?.modelStyle.name == modelStyle.name {
+                selectedItem = items[index]
+            }
         }
-
-        // Update selected item
-        self.selectedItem = nil
-        self.selectedItem = Item(modelStyle: modelStyle)
     }
 
     private func selectItem(_ item: ModelSelectView.Item) {
@@ -134,8 +264,27 @@ private struct ModelItemRow: View {
     let item: ModelSelectView.Item
     let isSelected: Bool
     let progress: Progress?
-    let onTap: () -> Void
-    let onAction: () -> Void
+
+    private var onTapAction: (() -> Void)?
+    private var onActionAction: (() -> Void)?
+
+    init(item: ModelSelectView.Item, isSelected: Bool, progress: Progress?) {
+        self.item = item
+        self.isSelected = isSelected
+        self.progress = progress
+    }
+
+    func onTap(_ action: @escaping () -> Void) -> ModelItemRow {
+        var copy = self
+        copy.onTapAction = action
+        return copy
+    }
+
+    func onAction(_ action: @escaping () -> Void) -> ModelItemRow {
+        var copy = self
+        copy.onActionAction = action
+        return copy
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -165,7 +314,7 @@ private struct ModelItemRow: View {
             .padding()
             .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
             .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
+            .onTapGesture { onTapAction?() }
 
             // Progress View (if downloading)
             if let progress = progress {
@@ -265,7 +414,7 @@ private struct ModelItemRow: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        Button(action: onAction) {
+        Button(action: { onActionAction?() }) {
             HStack(spacing: 6) {
                 actionIcon
                 Text(actionTitle)
@@ -356,7 +505,7 @@ private struct ModelItemRow: View {
 
 extension ModelSelectView {
     struct Item: Identifiable {
-        let id = UUID()
+        var id: String { modelStyle.name }
         var modelStyle: ModelStyle
         var isSelected: Bool = false
     }
