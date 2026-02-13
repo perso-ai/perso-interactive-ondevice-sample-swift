@@ -54,8 +54,8 @@ final class MainViewModel: ObservableObject {
     /// The active session (SDK core object)
     private var session: PersoInteractiveSession?
 
-    /// The selected model style for the session
-    private var modelStyle: ModelStyle
+    /// The session configuration
+    private let configuration: SessionConfiguration
 
     /// Current backend processing state
     @Published var processingState: ProcessingState = .idle
@@ -89,17 +89,6 @@ final class MainViewModel: ObservableObject {
     /// Audio recorder for voice input
     private let recorder = AudioRecorder()
 
-    // Available SDK features (fetched from the SDK)
-    private var availableSTTTypes: [STTType] = []
-    private var availableLLMTypes: [LLMType] = []
-    private var availablePrompts: [Prompt] = []
-    private var availableDocuments: [Document] = []
-    private var availableTTSTypes: [TTSType] = []
-    private var availableMCPServers: [MCPServer] = []
-
-    /// Flag to prevent terminated callback from overriding UI state during restart
-    private var isRestarting = false
-
     /// Task for managing async conversation processing
     private var processingTask: Task<Void, Never>?
 
@@ -118,8 +107,8 @@ final class MainViewModel: ObservableObject {
         processingTask?.cancel()
     }
 
-    init(modelStyle: ModelStyle) {
-        self.modelStyle = modelStyle
+    init(configuration: SessionConfiguration) {
+        self.configuration = configuration
 
         Task {
             do {
@@ -161,10 +150,7 @@ final class MainViewModel: ObservableObject {
         clearHistory()
 
         do {
-            // Fetch available SDK features (models, prompts, etc.)
-            try await fetchAvailableFeatures()
-
-            // Create a new session with selected features
+            // Create a new session with the provided configuration
             try await createSession()
         } catch {
             uiState = .error("Unable to create session: \(error.localizedDescription)")
@@ -277,37 +263,35 @@ extension MainViewModel {
 
     }
 
-    /// Fetches all available SDK features in parallel
-    /// This demonstrates how to query the SDK for available models and resources
-    private func fetchAvailableFeatures() async throws {
-        async let sttTypes = PersoInteractive.fetchAvailableSTTModels()
-        async let llmTypes = PersoInteractive.fetchAvailableLLMModels()
-        async let prompts = PersoInteractive.fetchAvailablePrompts()
-        async let documents = PersoInteractive.fetchAvailableDocuments()
-        async let ttsTypes = PersoInteractive.fetchAvailableTTSModels()
-        async let mcpServers = PersoInteractive.fetchAvailableMCPServers()
-
-        (availableSTTTypes, availableLLMTypes, availablePrompts, availableDocuments, availableTTSTypes, availableMCPServers) = try await (
-            sttTypes, llmTypes, prompts, documents, ttsTypes, mcpServers
-        )
-    }
-
-    /// Creates a new session with selected features
+    /// Creates a new session with the provided configuration
     /// This demonstrates how to configure a session with STT, LLM, and TTS capabilities
     private func createSession() async throws {
-        // Select features to use (using first available for simplicity)
-        guard let sttType = availableSTTTypes.first,
-              let llmType = availableLLMTypes.first,
-              let prompt = availablePrompts.first,
-              let ttsType = availableTTSTypes.first else {
-            debugPrint("CreateSession failed: No features available")
-            return
-        }
-        let document = availableDocuments.first
-        let mcpServers: [MCPServer] = []
+        let sttType = configuration.sttType
+        let llmType = configuration.llmType
+        let prompt = configuration.prompt
+        let document = configuration.document
+        let ttsType = configuration.ttsType
+        let mcpServers = configuration.mcpServers
 
         // IMPORTANT: Create session with selected capabilities
         // The order matters: STT -> LLM -> TTS represents the processing pipeline
+        nonisolated(unsafe) let statusHandler: (PersoInteractiveSession.SessionStatus) -> Void = { [weak self] sessionStatus in
+            guard let self else { return }
+
+            // Monitor session lifecycle
+            switch sessionStatus {
+            case .started:
+                break
+            case .terminated:
+                Task { @MainActor in
+                    self.session = nil
+                    self.uiState = .terminated
+                }
+            default:
+                break
+            }
+        }
+
         let session = try await PersoInteractive.createSession(
             for: [
                 // Speech recognition
@@ -320,27 +304,9 @@ extension MainViewModel {
                 // Speech synthesis
                 .textToSpeech(type: ttsType)
             ],
-            modelStyle: modelStyle
-        ) { [weak self] sessionStatus in
-            guard let self else { return }
-
-            // Monitor session lifecycle
-            switch sessionStatus {
-            case .started:
-                break
-            case .terminated:
-                self.session = nil
-                Task { @MainActor in
-                    if self.isRestarting {
-                        self.isRestarting = false
-                    } else {
-                        self.uiState = .terminated
-                    }
-                }
-            default:
-                break
-            }
-        }
+            modelStyle: configuration.modelStyle,
+            statusHandler: statusHandler
+        )
 
         self.session = session
         self.uiState = .started(session)

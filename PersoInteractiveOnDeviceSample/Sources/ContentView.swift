@@ -8,7 +8,8 @@ import PersoInteractiveOnDeviceSDK
 
 enum Screen: Hashable {
     case modelSelectView
-    case main(ModelStyle)
+    case configure(ModelStyle)
+    case main(SessionConfiguration)
 }
 
 struct ContentView: View {
@@ -22,8 +23,10 @@ struct ContentView: View {
                     switch screen {
                     case .modelSelectView:
                         ModelSelectView(path: $path)
-                    case .main(let modelStyle):
-                        MainView(path: $path, modelStyle: modelStyle)
+                    case .configure(let modelStyle):
+                        ConfigureView(path: $path, modelStyle: modelStyle)
+                    case .main(let configuration):
+                        MainView(path: $path, configuration: configuration)
                     }
                 }
         }

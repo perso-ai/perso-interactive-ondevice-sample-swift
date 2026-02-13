@@ -15,8 +15,8 @@ struct MainView: View {
 
     // MARK: - Initialization
 
-    init(path: Binding<[Screen]>, modelStyle: ModelStyle) {
-        self._viewModel = .init(wrappedValue: .init(modelStyle: modelStyle))
+    init(path: Binding<[Screen]>, configuration: SessionConfiguration) {
+        self._viewModel = .init(wrappedValue: .init(configuration: configuration))
         self._path = path
 
 #if os(iOS)
