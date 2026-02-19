@@ -5,16 +5,23 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
+import Synchronization
 
-final class AudioRecorder {
+// SAFETY: @unchecked Sendable is justified because all shared mutable state
+// is protected by `mutableState: Mutex<MutableState>`. isRecording is only
+// mutated from main-thread contexts.
+final class AudioRecorder: @unchecked Sendable {
 
     private var cancellables = Set<AnyCancellable>()
 
-    private var audioEngine: AVAudioEngine?
     private let targetSampleRate: Double = 16000
-    private var targetFormat: AVAudioFormat?
 
-    private var recordedBuffers: [AVAudioPCMBuffer] = []
+    private struct MutableState {
+        var audioEngine: AVAudioEngine?
+        var recordedBuffers: [AVAudioPCMBuffer] = []
+        var targetFormat: AVAudioFormat?
+    }
+    private let mutableState = Mutex(MutableState())
 
     /// Recording Status
     /// - If you want to continuously observe state changes, you can use a `Publisher`.
@@ -25,8 +32,11 @@ final class AudioRecorder {
     }
 
     deinit {
-        Task { [weak self] in
-            try? await self?.stopRecording()
+        mutableState.withLock { state in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            state.audioEngine?.stop()
+            state.audioEngine = nil
+            state.recordedBuffers.removeAll()
         }
     }
 
@@ -56,8 +66,9 @@ final class AudioRecorder {
 
         guard !isRecording else { throw AudioRecorderError.alreadyRecording }
 
-        recordedBuffers.removeAll()
-        audioEngine = try setupAudioEngine()
+        mutableState.withLock { $0.recordedBuffers.removeAll() }
+        let engine = try setupAudioEngine()
+        mutableState.withLock { $0.audioEngine = engine }
         isRecording = true
     }
 
@@ -74,40 +85,35 @@ final class AudioRecorder {
     /// Ensure that `isRecording` is true before calling this method, as it will throw an error if no recording is active.
     func stopRecording() async throws -> Data {
         defer {
-            self.recordedBuffers.removeAll()
+            mutableState.withLock { $0.recordedBuffers.removeAll() }
             self.isRecording = false
         }
 
-        let audioData = try await Task { [weak self] in
-            guard let self = self else {
-                throw AudioRecorderError.recordingFailed
-            }
+        guard isRecording else {
+            throw AudioRecorderError.notRecordingMode
+        }
 
-            guard self.isRecording else {
-                throw AudioRecorderError.notRecordingMode
-            }
+        let (buffers, targetFormat) = mutableState.withLock { state -> ([AVAudioPCMBuffer], AVAudioFormat?) in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            state.audioEngine?.stop()
+            state.audioEngine = nil
+            return (state.recordedBuffers, state.targetFormat)
+        }
 
-            self.audioEngine?.inputNode.removeTap(onBus: 0)
-            self.audioEngine?.stop()
-            self.audioEngine = nil
+        guard !buffers.isEmpty,
+              let targetFormat,
+              let buffer = AVAudioPCMBuffer(buffers: buffers, format: targetFormat)
+        else {
+            throw AudioRecorderError.notExistRecordingData
+        }
 
-            guard !self.recordedBuffers.isEmpty,
-                  let targetFormat = self.targetFormat,
-                  let buffer = AVAudioPCMBuffer(buffers: self.recordedBuffers, format: targetFormat)
-            else {
-                throw AudioRecorderError.notExistRecordingData
-            }
+        let url = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first!
+            .appending(path: "temp.wav")
 
-            let url = FileManager.default
-                .urls(for: .documentDirectory, in: .userDomainMask)
-                .first!
-                .appending(path: "temp.wav")
-
-            try self.writeToAudioFile(buffer, url: url)
-            return try Data(contentsOf: url)
-        }.value
-
-        return audioData
+        try writeToAudioFile(buffer, url: url)
+        return try Data(contentsOf: url)
     }
 
 }
@@ -133,7 +139,7 @@ extension AudioRecorder {
             interleaved: false
         ) else { throw AudioRecorderError.recordingFailed }
 
-        self.targetFormat = targetFormat
+        mutableState.withLock { $0.targetFormat = targetFormat }
 
         guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
             throw AudioRecorderError.formatConversionIsNotPossible
@@ -148,9 +154,9 @@ extension AudioRecorder {
             do {
                 // Resample audio buffer from 48kHz to 16kHz
                 let resampledBuffer = try resampleBuffer(buffer, with: converter)
-                recordedBuffers.append(resampledBuffer)
+                mutableState.withLock { $0.recordedBuffers.append(resampledBuffer) }
             } catch {
-                self.recordedBuffers.removeAll()
+                mutableState.withLock { $0.recordedBuffers.removeAll() }
             }
         }
 
@@ -186,10 +192,12 @@ extension AudioRecorder {
     }
 
     private func cancelRecording() {
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
-        recordedBuffers.removeAll()
+        mutableState.withLock { state in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            state.audioEngine?.stop()
+            state.audioEngine = nil
+            state.recordedBuffers.removeAll()
+        }
         isRecording = false
     }
 
@@ -219,6 +227,10 @@ extension AudioRecorder {
             throw AudioRecorderError.unsupportedFormat
         }
 
+        // SAFETY: nonisolated(unsafe) is required because AVAudioPCMBuffer is not Sendable.
+        // The buffer is only read (never mutated) in the inputBlock closure, and its
+        // lifetime is scoped to this function call.
+        nonisolated(unsafe) let buffer = buffer
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
             if buffer.frameLength == 0 {
                 outStatus.pointee = .endOfStream
