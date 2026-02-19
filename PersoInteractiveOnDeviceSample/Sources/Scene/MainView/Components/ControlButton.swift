@@ -37,19 +37,6 @@ struct ControlButton: View {
             }
         }
 
-        var shadowColor: Color {
-            switch self {
-            case .normal: return .black.opacity(0.25)
-            case .recording: return .red.opacity(0.4)
-            }
-        }
-
-        var needsAnimation: Bool {
-            switch self {
-            case .recording: return true
-            default: return false
-            }
-        }
     }
 
     init(
@@ -61,8 +48,6 @@ struct ControlButton: View {
         self.isEnabled = isEnabled
         self.action = action
     }
-
-    @State private var isAnimating = false
 
     var body: some View {
         Button(action: action) {
@@ -104,22 +89,6 @@ struct ControlButton: View {
         }
         .buttonStyle(PressableButtonStyle())
         .disabled(!isEnabled)
-        .onAppear {
-            if type.needsAnimation {
-                startAnimation()
-            }
-        }
-    }
-
-    private func startAnimation() {
-        if case .recording = type {
-            withAnimation(
-                .easeInOut(duration: 1.5)
-                .repeatForever(autoreverses: false)
-            ) {
-                isAnimating = true
-            }
-        }
     }
 }
 

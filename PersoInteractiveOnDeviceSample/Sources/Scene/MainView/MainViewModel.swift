@@ -13,6 +13,14 @@ final class MainViewModel: ObservableObject {
 
     // MARK: - State Definitions
 
+    /// Represents the chat response state for UI feedback
+    enum ChatResponseState: Equatable {
+        case idle           // No active processing
+        case waiting        // Sent message, waiting for first LLM chunk
+        case streaming      // Receiving response chunks
+        case error(String)  // Error occurred
+    }
+
     /// Represents the overall UI state of the application
     enum UIState {
         case idle                           // Waiting to start
@@ -51,6 +59,18 @@ final class MainViewModel: ObservableObject {
 
     /// Current backend processing state
     @Published var processingState: ProcessingState = .idle
+
+    /// Current chat response state for UI feedback
+    @Published var chatResponseState: ChatResponseState = .idle
+
+    /// Last sent message for retry capability
+    @Published private(set) var lastSentMessage: String?
+
+    /// Whether chat history is visible (iOS only)
+    @Published var isChatHistoryVisible: Bool = true
+
+    /// Accumulated streaming response text (shown during streaming)
+    @Published var streamingResponse: String = ""
 
     /// Chat message history
     @Published var messages: [ChatMessage] = []
@@ -125,6 +145,8 @@ final class MainViewModel: ObservableObject {
         uiState = .idle
         aiHumanState = .idle
         processingState = .idle
+        chatResponseState = .idle
+        isChatHistoryVisible = false
 
         clearHistory()
 
@@ -142,9 +164,28 @@ final class MainViewModel: ObservableObject {
     /// Sends a text message to the LLM
     /// - Parameter message: The user's text message
     func sendMessage(_ message: String) {
+        // Cancel any ongoing task before sending
+        if aiHumanState == .speaking || processingState != .idle {
+            processingTask?.cancel()
+            processingTask = nil
+            Task { await stopSpeech?() }
+            processingState = .idle
+            chatResponseState = .idle
+        }
+
         let userMessage: ChatMessage = .user(message)
         messages.append(userMessage)
+        lastSentMessage = message
 
+        processingTask = Task { [weak self] in
+            await self?.processConversation(message: message)
+        }
+    }
+
+    /// Retries the last sent message after an error
+    func retryLastMessage() {
+        guard let message = lastSentMessage else { return }
+        chatResponseState = .idle
         processingTask = Task { [weak self] in
             await self?.processConversation(message: message)
         }
@@ -176,6 +217,20 @@ extension MainViewModel {
         messages.removeAll()
     }
 
+    /// Restarts the session completely (stops speech, clears state, reinitializes)
+    func restartSession() {
+        // Cancel any ongoing task
+        processingTask?.cancel()
+        processingTask = nil
+        Task {
+            await stopSpeech?()
+            processingState = .idle
+            chatResponseState = .idle
+            streamingResponse = ""
+            await initializeSession()
+        }
+    }
+
     /// Handles the record button tap (starts voice recording)
     func recordButtonDidTap() {
         _startRecording()
@@ -188,7 +243,16 @@ extension MainViewModel {
 
     /// Updates the AI human avatar state
     func updateHumanState(_ state: AIHumanState) {
+        let previous = self.aiHumanState
         self.aiHumanState = state
+
+        // Reset processingState when speaking finishes and returns to standby/idle
+        if previous == .speaking && (state == .standby || state == .idle) {
+            if processingTask == nil {
+                processingState = .idle
+                chatResponseState = .idle
+            }
+        }
     }
 }
 
@@ -203,6 +267,7 @@ extension MainViewModel {
                 self?.isRecording = isRecording
             }
             .store(in: &cancellables)
+
     }
 
     /// Fetches all available SDK features in parallel
@@ -224,12 +289,12 @@ extension MainViewModel {
     /// This demonstrates how to configure a session with STT, LLM, and TTS capabilities
     private func createSession() async throws {
         // Select features to use (using first available for simplicity)
-        let sttType = availableSTTTypes[0]
-        let llmType = availableLLMTypes[0]
-        let prompt = availablePrompts[0]
+        let sttType = availableSTTTypes.first { $0.name == "default" } ?? availableSTTTypes[0]
+        let llmType = availableLLMTypes.first { $0.name == "azure-gpt-4o" } ?? availableLLMTypes[0]
+        let prompt = availablePrompts.first { $0.name == "sangbeom_v1.0" } ?? availablePrompts[0]
         let document = availableDocuments.first
-        let ttsType = availableTTSTypes[0]
-        let mcpServers = availableMCPServers
+        let ttsType = availableTTSTypes.first { $0.name == "ansunmi" } ?? availableTTSTypes[0]
+        let mcpServers: [MCPServer] = []
 
         // IMPORTANT: Create session with selected capabilities
         // The order matters: STT -> LLM -> TTS represents the processing pipeline
@@ -328,9 +393,11 @@ extension MainViewModel {
             await processConversation(message: userText)
         } catch PersoInteractiveError.taskCancelled {
             debugPrint("STT task cancelled")
+            chatResponseState = .idle
             processingState = .idle
         } catch {
-            debugPrint("STT conversation error")
+            debugPrint("STT conversation error: \(error)")
+            chatResponseState = .error("Speech recognition failed. Please try again.")
             processingState = .idle
         }
 
@@ -347,6 +414,8 @@ extension MainViewModel {
             if processingState != .llm {
                 processingState = .llm
             }
+            chatResponseState = .waiting
+            streamingResponse = ""
 
             // STEP 1: Send message to LLM and get streaming response
             let stream = session.completeChat(
@@ -356,18 +425,28 @@ extension MainViewModel {
                 ]
             )
 
+            var isFirstChunk = true
+
             // STEP 2: Process streaming response chunks
             for try await partial in stream {
                 switch partial {
                 case .assistant(let assistantMessage, let finish):
                     // Handle TTS in real-time for each chunk (during streaming)
                     if !finish, let chunk = assistantMessage.chunks.last {
+                        if isFirstChunk {
+                            chatResponseState = .streaming
+                            isFirstChunk = false
+                        }
+                        streamingResponse += chunk
                         handleAssistantMessage(chunk)
                     }
 
                     // Add completed message to UI when streaming finishes
                     if finish {
                         messages.append(partial)
+                        streamingResponse = ""
+                        chatResponseState = .idle
+                        processingState = .idle
                     }
                 default:
                     continue
@@ -377,12 +456,15 @@ extension MainViewModel {
         } catch PersoInteractiveError.largeLanguageModelStreamingResponseError(let reason) {
             /// If a failure occurs during the LLM stream, display the message up to the processed portion.
             debugPrint("LLM Streaming Error: - \(reason)")
+            chatResponseState = .error("An error occurred during response streaming.")
             processingState = .idle
         } catch PersoInteractiveError.taskCancelled {
             debugPrint("LLM Task Cancelled")
+            chatResponseState = .idle
             processingState = .idle
         } catch {
             debugPrint("LLM conversation error: - \(error.localizedDescription)")
+            chatResponseState = .error("An error occurred while processing the response. Please try again.")
             processingState = .idle
         }
 
