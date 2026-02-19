@@ -258,9 +258,11 @@ extension MainViewModel {
     /// Binds recorder state to view model properties
     private func bind() {
         recorder.$isRecording
-            .receive(on: DispatchQueue.main)
+            .receive(on: RunLoop.main)
             .sink { [weak self] isRecording in
-                self?.isRecording = isRecording
+                MainActor.assumeIsolated {
+                    self?.isRecording = isRecording
+                }
             }
             .store(in: &cancellables)
 
@@ -278,6 +280,9 @@ extension MainViewModel {
 
         // IMPORTANT: Create session with selected capabilities
         // The order matters: STT -> LLM -> TTS represents the processing pipeline
+        // SAFETY: nonisolated(unsafe) is required because the SDK expects a non-Sendable
+        // closure. This closure only accesses self via [weak self] and dispatches all
+        // state mutations to @MainActor via Task { @MainActor in }.
         nonisolated(unsafe) let statusHandler: (PersoInteractiveSession.SessionStatus) -> Void = { [weak self] sessionStatus in
             guard let self else { return }
 

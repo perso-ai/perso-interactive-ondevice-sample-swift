@@ -35,7 +35,7 @@ struct ChatView: View {
             .onChange(of: viewModel.messages) { oldValue, newValue in
                 guard let lastItemID = newValue.last?.id else { return }
 
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     withAnimation(.easeOut(duration: 0.25)) {
                         proxy.scrollTo(lastItemID, anchor: .bottom)
                     }

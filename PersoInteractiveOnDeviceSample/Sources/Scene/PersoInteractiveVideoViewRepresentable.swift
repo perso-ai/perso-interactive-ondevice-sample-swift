@@ -70,6 +70,7 @@ struct PersoInteractiveVideoViewRepresentable: ViewRepresentable {
 
     /// Configures the video view and sets up callbacks
     /// This demonstrates the complete flow of initializing and using PersoInteractiveVideoView
+    @MainActor
     private func setupView(_ videoView: PersoInteractiveVideoView) {
         // STEP 1: Start video from initial state (.idle)
         // This begins the video rendering pipeline
