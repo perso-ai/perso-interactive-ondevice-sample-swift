@@ -32,11 +32,7 @@ final class ModelSelectViewModel: ObservableObject {
     @Published var isDeleting: Bool = false
 
     private var downloadTasks: [String: Task<Void, Never>] = [:]
-
-    // MARK: - Subjects
-
-    /// Signals navigation to main screen when model is ready
-    let moveToMainTabScreen = PassthroughSubject<ModelStyle, Never>()
+    private var completionPollingTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Initialization
 
@@ -67,16 +63,18 @@ final class ModelSelectViewModel: ObservableObject {
         }
     }
 
-    /// Handles model selection - either navigates to main screen or starts download
+    /// Handles model selection - starts download for unavailable models
     func setItem(_ item: ModelSelectView.Item) {
         let modelStyle = item.modelStyle
 
         switch modelStyle.availability {
         case .available:
-            moveToMainTabScreen.send(modelStyle)
+            break
 
         case .unavailable(_):
             downloadTasks[item.id]?.cancel()
+            completionPollingTasks[item.id]?.cancel()
+            completionPollingTasks[item.id] = nil
             downloadTasks[item.id] = Task {
                 await loadModelResources(modelStyle: modelStyle, for: item.id)
             }
@@ -100,6 +98,8 @@ final class ModelSelectViewModel: ObservableObject {
     func cancelDownload(for itemID: String) {
         downloadTasks[itemID]?.cancel()
         downloadTasks[itemID] = nil
+        completionPollingTasks[itemID]?.cancel()
+        completionPollingTasks[itemID] = nil
         itemsProgress[itemID] = nil
     }
 
@@ -115,9 +115,14 @@ final class ModelSelectViewModel: ObservableObject {
                 switch progress {
                 case .progressing(let progressObj):
                     self.itemsProgress[itemID] = progressObj
+                    if progressObj.fractionCompleted >= 1.0 {
+                        scheduleCompletionPolling(for: itemID, modelName: modelStyle.name)
+                    }
                 case .finished(let updatedModelStyle):
                     self.itemsProgress[itemID] = nil
                     self.downloadTasks[itemID] = nil
+                    self.completionPollingTasks[itemID]?.cancel()
+                    self.completionPollingTasks[itemID] = nil
                     updateModelStyleStatus(from: updatedModelStyle)
                 }
             }
@@ -126,15 +131,21 @@ final class ModelSelectViewModel: ObservableObject {
             if self.itemsProgress[itemID] != nil {
                 self.itemsProgress[itemID] = nil
                 self.downloadTasks[itemID] = nil
+                self.completionPollingTasks[itemID]?.cancel()
+                self.completionPollingTasks[itemID] = nil
                 await fetchModelStyles()
             }
 
         } catch is CancellationError {
             self.itemsProgress[itemID] = nil
             self.downloadTasks[itemID] = nil
+            self.completionPollingTasks[itemID]?.cancel()
+            self.completionPollingTasks[itemID] = nil
         } catch {
             self.itemsProgress[itemID] = nil
             self.downloadTasks[itemID] = nil
+            self.completionPollingTasks[itemID]?.cancel()
+            self.completionPollingTasks[itemID] = nil
             downloadError = "Download failed: \(error.localizedDescription)"
         }
     }
@@ -143,6 +154,50 @@ final class ModelSelectViewModel: ObservableObject {
     private func updateModelStyleStatus(from modelStyle: ModelStyle) {
         if let index = models.firstIndex(where: { $0.name == modelStyle.name }) {
             models[index] = modelStyle
+        }
+    }
+
+    private func scheduleCompletionPolling(for itemID: String, modelName: String) {
+        guard completionPollingTasks[itemID] == nil else {
+            return
+        }
+
+        completionPollingTasks[itemID] = Task {
+            await pollCompletionStatus(for: itemID, modelName: modelName)
+        }
+    }
+
+    private func pollCompletionStatus(for itemID: String, modelName: String) async {
+        defer { completionPollingTasks[itemID] = nil }
+
+        for _ in 0..<6 {
+            guard !Task.isCancelled else {
+                return
+            }
+
+            guard itemsProgress[itemID] != nil else {
+                return
+            }
+
+            if let refreshedStyle = await fetchModelStyle(named: modelName),
+               refreshedStyle.availability == .available {
+                itemsProgress[itemID] = nil
+                downloadTasks[itemID]?.cancel()
+                downloadTasks[itemID] = nil
+                updateModelStyleStatus(from: refreshedStyle)
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 700_000_000)
+        }
+    }
+
+    private func fetchModelStyle(named modelName: String) async -> ModelStyle? {
+        do {
+            let styles = try await PersoInteractive.fetchAvailableModelStyles()
+            return styles.first(where: { $0.name == modelName })
+        } catch {
+            return nil
         }
     }
 }

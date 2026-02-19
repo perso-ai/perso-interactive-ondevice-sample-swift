@@ -6,42 +6,98 @@ import SwiftUI
 
 import PersoInteractiveOnDeviceSDK
 
-struct ConfigureView: View {
+// MARK: - Configuration Section View
 
+/// An inline configuration section that appears within ModelSelectView after a model is selected.
+/// Renders model identity, all configuration cards, and a Start Session button.
+struct ConfigurationSectionView: View {
+
+    @ObservedObject var viewModel: ConfigureViewModel
+    let modelStyle: ModelStyle
     @Binding var path: [Screen]
-    @StateObject private var viewModel: ConfigureViewModel
-
-    init(path: Binding<[Screen]>, modelStyle: ModelStyle) {
-        self._path = path
-        self._viewModel = .init(wrappedValue: .init(modelStyle: modelStyle))
-    }
+    var showsModelHeader: Bool = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let errorMessage = viewModel.errorMessage {
-                errorView(errorMessage)
-            } else if viewModel.isLoading {
-                loadingView
-            } else {
-                configurationContent
-            }
+        if let errorMessage = viewModel.errorMessage {
+            configurationErrorView(errorMessage)
+        } else if viewModel.isLoading {
+            configurationLoadingView
+        } else {
+            configurationContent
         }
-        .background(.background)
-        .task {
-            await viewModel.fetchAvailableFeatures()
+    }
+
+    // MARK: - Loading
+
+    private var configurationLoadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Loading available features...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .navigationBarBackButtonHidden()
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button {
-                    path.removeLast()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("Back")
-                    }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+    }
+
+    // MARK: - Error
+
+    private func configurationErrorView(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                Task {
+                    await viewModel.fetchAvailableFeatures()
                 }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Retry")
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(Color.accentColor)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    // MARK: - Content
+
+    private var configurationContent: some View {
+        VStack(spacing: 12) {
+            if showsModelHeader {
+                headerView
+            } else {
+                sectionTitle
+            }
+
+            // Pipeline cards
+            sttCard
+            llmCard
+            promptCard
+            documentCard
+            ttsCard
+            mcpServersCard
+
+            startSessionButton
+                .padding(.top, 4)
         }
     }
 
@@ -68,11 +124,11 @@ struct ConfigureView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(viewModel.modelStyle.displayName ?? viewModel.modelStyle.name)
+                    Text(modelStyle.displayName ?? modelStyle.name)
                         .font(.title3)
                         .fontWeight(.semibold)
 
-                    Text(viewModel.modelStyle.name)
+                    Text(modelStyle.name)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -96,86 +152,16 @@ struct ConfigureView: View {
 
             // Section title
             HStack {
-                Text("Configure Session")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                sectionTitle
                 Spacer()
             }
         }
     }
 
-    // MARK: - Loading
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.5)
-
-            Text("Loading available features...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Error
-
-    private func errorView(_ message: String) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            Button {
-                Task {
-                    await viewModel.fetchAvailableFeatures()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Retry")
-                }
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .cornerRadius(8)
-            }
-            .buttonStyle(.plain)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Configuration Content
-
-    private var configurationContent: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    headerView
-
-                    // Pipeline cards -- each category rendered as a card
-                    sttCard
-                    llmCard
-                    promptCard
-                    documentCard
-                    ttsCard
-                    mcpServersCard
-                }
-                .padding()
-            }
-
-            Divider()
-
-            startSessionButton
-        }
+    private var sectionTitle: some View {
+        Text("Configure Session")
+            .font(.headline)
+            .foregroundStyle(.secondary)
     }
 
     // MARK: - STT Card
@@ -187,7 +173,8 @@ struct ConfigureView: View {
                 icon: "waveform",
                 iconColor: .blue,
                 title: "Speech to Text",
-                subtitle: viewModel.availableSTTTypes[viewModel.selectedSTTIndex].name
+                subtitle: viewModel.availableSTTTypes[viewModel.selectedSTTIndex].name,
+                description: "Converts voice input to text"
             ) {
                 Picker("STT Model", selection: $viewModel.selectedSTTIndex) {
                     ForEach(viewModel.availableSTTTypes.indices, id: \.self) { index in
@@ -210,7 +197,8 @@ struct ConfigureView: View {
                 icon: "brain",
                 iconColor: Color._0X644AFF,
                 title: "Language Model",
-                subtitle: viewModel.availableLLMTypes[viewModel.selectedLLMIndex].name
+                subtitle: viewModel.availableLLMTypes[viewModel.selectedLLMIndex].name,
+                description: "AI language model for conversation"
             ) {
                 Picker("LLM Model", selection: $viewModel.selectedLLMIndex) {
                     ForEach(viewModel.availableLLMTypes.indices, id: \.self) { index in
@@ -233,7 +221,8 @@ struct ConfigureView: View {
                 icon: "text.bubble",
                 iconColor: .orange,
                 title: "Prompt",
-                subtitle: viewModel.availablePrompts[viewModel.selectedPromptIndex].name
+                subtitle: viewModel.availablePrompts[viewModel.selectedPromptIndex].name,
+                description: "System prompt defining AI personality"
             ) {
                 Picker("Prompt", selection: $viewModel.selectedPromptIndex) {
                     ForEach(viewModel.availablePrompts.indices, id: \.self) { index in
@@ -260,7 +249,8 @@ struct ConfigureView: View {
                     viewModel.availableDocuments.indices.contains($0)
                         ? viewModel.availableDocuments[$0].title
                         : nil
-                } ?? "None"
+                } ?? "None",
+                description: "RAG document for contextual knowledge"
             ) {
                 Picker("Document", selection: $viewModel.selectedDocumentIndex) {
                     Text("None").tag(nil as Int?)
@@ -284,7 +274,8 @@ struct ConfigureView: View {
                 icon: "speaker.wave.3",
                 iconColor: .green,
                 title: "Text to Speech",
-                subtitle: ttsSubtitle
+                subtitle: ttsSubtitle,
+                description: "Converts AI response to speech"
             ) {
                 Picker("TTS Model", selection: $viewModel.selectedTTSIndex) {
                     ForEach(viewModel.availableTTSTypes.indices, id: \.self) { index in
@@ -322,7 +313,7 @@ struct ConfigureView: View {
                 // Card header
                 HStack(spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(.indigo.opacity(0.15))
                             .frame(width: 36, height: 36)
 
@@ -339,6 +330,10 @@ struct ConfigureView: View {
                         let selectedCount = viewModel.selectedMCPServerIndices.count
                         let totalCount = viewModel.availableMCPServers.count
                         Text("\(selectedCount) of \(totalCount) selected")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Text("External tool servers for extended capabilities")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -434,9 +429,6 @@ struct ConfigureView: View {
         }
         .buttonStyle(PressableButtonStyle())
         .disabled(!viewModel.canStartSession)
-        .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
     }
 
     // MARK: - Helpers
@@ -451,15 +443,32 @@ struct ConfigureView: View {
 
 /// A reusable card component for each configuration category.
 /// Displays an icon, title, current selection summary, and an expandable picker area.
-private struct ConfigurationCard<Content: View>: View {
+struct ConfigurationCard<Content: View>: View {
 
     let icon: String
     let iconColor: Color
     let title: String
     let subtitle: String
+    let description: String?
     @ViewBuilder let content: () -> Content
 
-    @State private var isExpanded = false
+    @State private var isExpanded = true
+
+    init(
+        icon: String,
+        iconColor: Color,
+        title: String,
+        subtitle: String,
+        description: String? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.icon = icon
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+        self.description = description
+        self.content = content
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -472,7 +481,7 @@ private struct ConfigurationCard<Content: View>: View {
                 HStack(spacing: 12) {
                     // Category icon
                     ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(iconColor.opacity(0.15))
                             .frame(width: 36, height: 36)
 
@@ -492,6 +501,12 @@ private struct ConfigurationCard<Content: View>: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+
+                        if !isExpanded, let description {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Spacer()

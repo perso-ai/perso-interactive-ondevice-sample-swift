@@ -59,12 +59,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
 
     /// Returns the appropriate root view based on the platform
     private var rootView: some View {
-        #if os(macOS)
         ContentView()
-            .preferredColorScheme(.light)
-        #else
-        ContentView()
-        #endif
     }
 }
 

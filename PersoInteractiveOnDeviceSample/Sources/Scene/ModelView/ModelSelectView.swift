@@ -11,23 +11,30 @@ struct ModelSelectView: View {
     @Binding var path: [Screen]
     @StateObject private var viewModel: ModelSelectViewModel
     @State private var items: [ModelSelectView.Item] = []
-    @State private var showDeleteConfirmation = false
+    @State private var selectedModelStyle: ModelStyle?
+    @State private var configureViewModel: ConfigureViewModel?
+    @State private var isModelPickerPresented = false
+    @State private var pendingAutoSelectModelID: String?
+    @State private var sheetFocusedModelID: String?
 
     init(path: Binding<[Screen]>) {
         self._path = path
         self._viewModel = .init(wrappedValue: .init())
     }
 
-    private var downloadedItems: [Item] {
-        items.filter { $0.modelStyle.availability == .available }
-            .sorted { ($0.modelStyle.displayName ?? $0.modelStyle.name)
-                .localizedCaseInsensitiveCompare($1.modelStyle.displayName ?? $1.modelStyle.name) == .orderedAscending }
-    }
+    private var sortedItems: [Item] {
+        items.sorted { lhs, rhs in
+            let lhsPriority = availabilityPriority(for: lhs.modelStyle)
+            let rhsPriority = availabilityPriority(for: rhs.modelStyle)
 
-    private var notDownloadedItems: [Item] {
-        items.filter { $0.modelStyle.availability != .available }
-            .sorted { ($0.modelStyle.displayName ?? $0.modelStyle.name)
-                .localizedCaseInsensitiveCompare($1.modelStyle.displayName ?? $1.modelStyle.name) == .orderedAscending }
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+
+            let lhsName = lhs.modelStyle.displayName ?? lhs.modelStyle.name
+            let rhsName = rhs.modelStyle.displayName ?? rhs.modelStyle.name
+            return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -42,7 +49,7 @@ struct ModelSelectView: View {
             } else if viewModel.isLoading {
                 loadingView
             } else {
-                modelListView
+                configurationSetupView
             }
         }
         .task {
@@ -50,9 +57,6 @@ struct ModelSelectView: View {
         }
         .onReceive(viewModel.$models) { modelStyles in
             updateItems(with: modelStyles)
-        }
-        .onReceive(viewModel.moveToMainTabScreen) { modelStyle in
-            path.append(.configure(modelStyle))
         }
         .navigationBarBackButtonHidden()
         .alert("Download Failed", isPresented: Binding(
@@ -63,17 +67,30 @@ struct ModelSelectView: View {
         } message: {
             Text(viewModel.downloadError ?? "")
         }
+        .sheet(isPresented: $isModelPickerPresented) {
+            ModelPickerSheetView(
+                items: sortedItems,
+                selectedModelID: selectedModelStyle?.name,
+                focusedModelID: sheetFocusedModelID,
+                progressByID: viewModel.itemsProgress,
+                onRowTap: handleSheetRowTap(_:),
+                onDownloadTap: handleDownloadTap(_:),
+                onCancelDownload: handleCancelDownload(_:)
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
-    // MARK: - Subviews
+    // MARK: - Top-level Subviews
 
     private var headerView: some View {
         VStack(spacing: 8) {
-            Text("Perso Models")
+            Text("Perso Session Setup")
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Choose a model to start a session")
+            Text("Select a model, then configure the session pipeline")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -82,7 +99,7 @@ struct ModelSelectView: View {
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()
-                .scaleEffect(1.5)
+                .controlSize(.large)
 
             Text("Loading available models...")
                 .font(.subheadline)
@@ -117,88 +134,101 @@ struct ModelSelectView: View {
                 .padding(.vertical, 10)
                 .background(Color.accentColor)
                 .foregroundStyle(.white)
-                .cornerRadius(8)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Model List
-
-    private var modelListView: some View {
+    private var configurationSetupView: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                // First-run banner when no models are downloaded yet
-                if downloadedItems.isEmpty {
-                    firstRunBanner
-                }
+            VStack(spacing: 12) {
+                modelSelectionCard
 
-                // Ready to Use section
-                if !downloadedItems.isEmpty {
-                    sectionHeader(
-                        title: "Ready to Use",
-                        count: downloadedItems.count,
-                        showDeleteButton: true
+                if let selectedModel = selectedModelStyle,
+                   let configVM = configureViewModel {
+                    ConfigurationSectionView(
+                        viewModel: configVM,
+                        modelStyle: selectedModel,
+                        path: $path,
+                        showsModelHeader: false
                     )
-
-                    ForEach(downloadedItems) { item in
-                        ModelCardView(
-                            item: item,
-                            progress: viewModel.itemsProgress[item.id]
-                        )
-                        .onAction { viewModel.setItem(item) }
-                        .onCancel { viewModel.cancelDownload(for: item.id) }
-                    }
-                }
-
-                // Divider between sections
-                if !downloadedItems.isEmpty && !notDownloadedItems.isEmpty {
-                    Divider()
-                        .padding(.vertical, 4)
-                }
-
-                // Available for Download section
-                if !notDownloadedItems.isEmpty {
-                    sectionHeader(
-                        title: "Available for Download",
-                        count: notDownloadedItems.count,
-                        showDeleteButton: false
-                    )
-
-                    ForEach(notDownloadedItems) { item in
-                        ModelCardView(
-                            item: item,
-                            progress: viewModel.itemsProgress[item.id]
-                        )
-                        .onAction { viewModel.setItem(item) }
-                        .onCancel { viewModel.cancelDownload(for: item.id) }
-                    }
+                    .id(selectedModel.name)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                } else {
+                    noModelSelectedPlaceholder
+                    disabledStartSessionButton
                 }
             }
             .padding()
         }
-        .alert("Delete All Models", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                Task {
-                    await viewModel.deleteAllDownloadedModels()
-                }
-            }
-        } message: {
-            Text("All downloaded models will be deleted. You will need to re-download them to use again.")
-        }
     }
 
-    // MARK: - First-Run Banner
+    // MARK: - Model Selection UI
 
-    private var firstRunBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Get Started", systemImage: "arrow.down.circle")
+    private var modelSelectionCard: some View {
+        Button {
+            sheetFocusedModelID = selectedModelStyle?.name
+            isModelPickerPresented = true
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color._0X644AFF.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "cube.box")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color._0X644AFF)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Model")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+
+                    if let selectedModelStyle {
+                        Text(selectedModelStyle.displayName ?? selectedModelStyle.name)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+
+                        Text(modelStatusText(for: selectedModelStyle))
+                            .font(.caption)
+                            .foregroundStyle(modelStatusColor(for: selectedModelStyle))
+                    } else {
+                        Text("No model selected")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Text("Tap to choose a model")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding()
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Double tap to open model picker")
+    }
+
+    private var noModelSelectedPlaceholder: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Select a model first", systemImage: "arrow.up.circle")
                 .font(.headline)
                 .foregroundStyle(Color._0X644AFF)
 
-            Text("Download a model below to begin your first interactive session.")
+            Text("Choose a ready model or download one from the model picker to unlock session configuration.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -207,77 +237,271 @@ struct ModelSelectView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    // MARK: - Section Header
-
-    private func sectionHeader(title: String, count: Int, showDeleteButton: Bool) -> some View {
-        HStack {
-            Text(title)
-                .font(.headline)
-
-            Text("(\(count))")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            if showDeleteButton {
-                Button {
-                    showDeleteConfirmation = true
-                } label: {
-                    if viewModel.isDeleting {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        HStack(spacing: 4) {
-                            Image(systemName: "trash")
-                            Text("Delete All")
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                    }
+    private var disabledStartSessionButton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                isModelPickerPresented = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("Start Session")
+                        .font(.headline)
                 }
-                .disabled(viewModel.isDeleting || downloadedItems.isEmpty)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.gray.opacity(0.4))
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+            .buttonStyle(.plain)
+            .disabled(true)
+
+            Text("Select a model to enable Start Session.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 4)
-        .padding(.bottom, 4)
     }
 
     // MARK: - Private Methods
 
+    private func availabilityPriority(for modelStyle: ModelStyle) -> Int {
+        switch modelStyle.availability {
+        case .available:
+            return 0
+
+        case .unavailable(let reason):
+            switch reason {
+            case .updateRequired:
+                return 1
+            case .notDownloaded:
+                return 2
+            case .unknown:
+                return 3
+            @unknown default:
+                return 3
+            }
+        }
+    }
+
     private func updateItems(with modelStyles: [ModelStyle]) {
         items = modelStyles.map { Item(modelStyle: $0) }
+
+        if let selectedName = selectedModelStyle?.name {
+            if let refreshedSelected = modelStyles.first(where: { $0.name == selectedName }) {
+                selectedModelStyle = refreshedSelected
+            } else {
+                selectedModelStyle = nil
+                configureViewModel = nil
+            }
+        }
+
+        attemptAutoSelectAfterDownload()
+    }
+
+    private func attemptAutoSelectAfterDownload() {
+        guard let pendingID = pendingAutoSelectModelID else {
+            return
+        }
+
+        guard let readyItem = items.first(where: {
+            $0.id == pendingID && $0.modelStyle.availability == .available
+        }) else {
+            return
+        }
+
+        pendingAutoSelectModelID = nil
+        selectModel(readyItem.modelStyle, closePicker: true)
+    }
+
+    private func selectModel(_ modelStyle: ModelStyle, closePicker: Bool = false) {
+        if selectedModelStyle?.name == modelStyle.name {
+            selectedModelStyle = modelStyle
+            if closePicker {
+                isModelPickerPresented = false
+            }
+            return
+        }
+
+        let snapshot = configureViewModel?.makeSelectionSnapshot()
+        selectedModelStyle = modelStyle
+
+        let vm = ConfigureViewModel(modelStyle: modelStyle)
+        configureViewModel = vm
+
+        Task {
+            await vm.fetchAvailableFeatures()
+
+            guard configureViewModel === vm else {
+                return
+            }
+
+            if let snapshot {
+                vm.restoreSelection(from: snapshot)
+            }
+        }
+
+        if closePicker {
+            isModelPickerPresented = false
+        }
+    }
+
+    private func handleSheetRowTap(_ item: Item) {
+        switch item.modelStyle.availability {
+        case .available:
+            sheetFocusedModelID = item.id
+            selectModel(item.modelStyle, closePicker: true)
+
+        case .unavailable:
+            sheetFocusedModelID = item.id
+        }
+    }
+
+    private func handleDownloadTap(_ item: Item) {
+        pendingAutoSelectModelID = item.id
+        sheetFocusedModelID = item.id
+        viewModel.setItem(item)
+    }
+
+    private func handleCancelDownload(_ item: Item) {
+        if pendingAutoSelectModelID == item.id {
+            pendingAutoSelectModelID = nil
+        }
+        viewModel.cancelDownload(for: item.id)
+    }
+
+    private func modelStatusText(for modelStyle: ModelStyle) -> String {
+        switch modelStyle.availability {
+        case .available:
+            return "Ready to use"
+
+        case .unavailable(let reason):
+            switch reason {
+            case .notDownloaded:
+                return "Not downloaded"
+            case .updateRequired:
+                return "Update available"
+            case .unknown:
+                return "Unavailable"
+            @unknown default:
+                return "Unavailable"
+            }
+        }
+    }
+
+    private func modelStatusColor(for modelStyle: ModelStyle) -> Color {
+        switch modelStyle.availability {
+        case .available:
+            return .green
+
+        case .unavailable(let reason):
+            switch reason {
+            case .notDownloaded:
+                return .secondary
+            case .updateRequired:
+                return .orange
+            case .unknown:
+                return .secondary
+            @unknown default:
+                return .secondary
+            }
+        }
     }
 }
 
-// MARK: - Model Card View
+private struct ModelPickerSheetView: View {
 
-private struct ModelCardView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let items: [ModelSelectView.Item]
+    let selectedModelID: String?
+    let focusedModelID: String?
+    let progressByID: [String: Progress]
+    let onRowTap: (ModelSelectView.Item) -> Void
+    let onDownloadTap: (ModelSelectView.Item) -> Void
+    let onCancelDownload: (ModelSelectView.Item) -> Void
+
+    var body: some View {
+        NavigationStack {
+            pickerScrollContent
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") {
+                            dismiss()
+                        }
+                        .keyboardShortcut(.cancelAction)
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var pickerScrollContent: some View {
+        #if os(macOS)
+        basePickerScrollContent
+            .navigationTitle("Select Model")
+        #else
+        basePickerScrollContent
+            .navigationTitle("Select Model")
+            .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var basePickerScrollContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                if items.isEmpty {
+                    emptyStateView
+                } else {
+                    ForEach(items) { item in
+                        ModelPickerRow(
+                            item: item,
+                            isSelected: item.id == selectedModelID,
+                            isFocused: item.id == focusedModelID,
+                            progress: progressByID[item.id],
+                            onTap: { onRowTap(item) },
+                            onDownloadTap: { onDownloadTap(item) },
+                            onCancelTap: { onCancelDownload(item) }
+                        )
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "cube.transparent")
+                .font(.system(size: 28))
+                .foregroundStyle(.secondary)
+
+            Text("No models available")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+}
+
+private struct ModelPickerRow: View {
+
     let item: ModelSelectView.Item
+    let isSelected: Bool
+    let isFocused: Bool
     let progress: Progress?
-
-    private var onActionHandler: (() -> Void)?
-    private var onCancelHandler: (() -> Void)?
-
-    init(item: ModelSelectView.Item, progress: Progress?) {
-        self.item = item
-        self.progress = progress
-    }
-
-    func onAction(_ action: @escaping () -> Void) -> ModelCardView {
-        var copy = self
-        copy.onActionHandler = action
-        return copy
-    }
-
-    func onCancel(_ action: @escaping () -> Void) -> ModelCardView {
-        var copy = self
-        copy.onCancelHandler = action
-        return copy
-    }
+    let onTap: () -> Void
+    let onDownloadTap: () -> Void
+    let onCancelTap: () -> Void
 
     private var isDownloading: Bool {
-        progress != nil
+        progress != nil && item.modelStyle.availability != .available
+    }
+
+    private var isFinalizing: Bool {
+        isDownloading && (progress?.fractionCompleted ?? 0) >= 1.0
     }
 
     private var modelName: String {
@@ -285,81 +509,47 @@ private struct ModelCardView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if isDownloading {
-                downloadingLayout
-            } else {
-                standardLayout
-            }
-        }
-        .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(modelName), \(statusText)")
-    }
-
-    // MARK: - Standard Layout (not downloading)
-
-    private var standardLayout: some View {
-        HStack(spacing: 12) {
-            iconBadge
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(modelName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                if item.modelStyle.displayName != nil {
-                    Text(item.modelStyle.name)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                statusLabel
-            }
-
-            Spacer()
-
-            ctaButton
-        }
-    }
-
-    // MARK: - Downloading Layout
-
-    private var downloadingLayout: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                iconBadge
+                ZStack(alignment: .bottomTrailing) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color._0X644AFF.opacity(0.15))
+                            .frame(width: 42, height: 42)
+
+                        Image(systemName: "cube.box")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color._0X644AFF)
+                    }
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.green)
+                            .background(Circle().fill(.background).padding(-1))
+                            .offset(x: 2, y: 2)
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(modelName)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
 
                     if item.modelStyle.displayName != nil {
                         Text(item.modelStyle.name)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(statusColor)
                 }
 
                 Spacer()
 
-                if let progress {
-                    Text("\(Int(progress.fractionCompleted * 100))%")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-
-                Button(action: { onCancelHandler?() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityLabel("Cancel download")
+                actionArea
             }
 
             if let progress {
@@ -370,7 +560,7 @@ private struct ModelCardView: View {
 
                     HStack {
                         Spacer()
-                        Text("\(formatBytes(progress.completedUnitCount)) / \(formatBytes(progress.totalUnitCount))")
+                        Text("\(Int(progress.fractionCompleted * 100))%")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -378,72 +568,48 @@ private struct ModelCardView: View {
                 }
             }
         }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(borderColor, lineWidth: borderLineWidth)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(modelName), \(statusText)")
     }
 
-    // MARK: - Icon Badge
-
-    private var iconBadge: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color._0X644AFF.opacity(0.15))
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: "cube.box")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color._0X644AFF)
-            }
-            .accessibilityHidden(true)
-
-            statusBadge
+    private var borderColor: Color {
+        if isSelected {
+            return .green.opacity(0.7)
         }
-    }
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        switch item.modelStyle.availability {
-        case .available:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(.green)
-                .background(Circle().fill(.background).padding(-1))
-                .offset(x: 2, y: 2)
-
-        case .unavailable(let reason):
-            switch reason {
-            case .notDownloaded:
-                EmptyView()
-
-            case .updateRequired:
-                Image(systemName: "arrow.clockwise.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.orange)
-                    .background(Circle().fill(.background).padding(-1))
-                    .offset(x: 2, y: 2)
-
-            case .unknown:
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.gray)
-                    .background(Circle().fill(.background).padding(-1))
-                    .offset(x: 2, y: 2)
-
-            @unknown default:
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.gray)
-                    .background(Circle().fill(.background).padding(-1))
-                    .offset(x: 2, y: 2)
-            }
+        if isFocused {
+            return Color._0X644AFF.opacity(0.7)
         }
+        return .clear
     }
 
-    // MARK: - Status Label
+    private var borderLineWidth: CGFloat {
+        if isSelected || isFocused {
+            return 1
+        }
+        return 0
+    }
 
     private var statusText: String {
+        if isFinalizing {
+            return "Finalizing..."
+        }
+
+        if isDownloading {
+            return "Downloading"
+        }
+
         switch item.modelStyle.availability {
         case .available:
             return "Ready to use"
+
         case .unavailable(let reason):
             switch reason {
             case .notDownloaded:
@@ -459,9 +625,18 @@ private struct ModelCardView: View {
     }
 
     private var statusColor: Color {
+        if isFinalizing {
+            return .secondary
+        }
+
+        if isDownloading {
+            return Color._0X644AFF
+        }
+
         switch item.modelStyle.availability {
         case .available:
             return .green
+
         case .unavailable(let reason):
             switch reason {
             case .notDownloaded:
@@ -476,103 +651,69 @@ private struct ModelCardView: View {
         }
     }
 
-    private var statusLabel: some View {
-        Text(statusText)
-            .font(.subheadline)
-            .foregroundStyle(statusColor)
-    }
-
-    // MARK: - CTA Button
-
     @ViewBuilder
-    private var ctaButton: some View {
-        switch item.modelStyle.availability {
-        case .available:
-            Button(action: { onActionHandler?() }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                    Text("Use")
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color._0X644AFF, in: Capsule())
+    private var actionArea: some View {
+        if isDownloading {
+            Button(action: onCancelTap) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(PressableButtonStyle())
-            .accessibilityHint("Double tap to use this model")
-
-        case .unavailable(let reason):
-            switch reason {
-            case .notDownloaded:
-                Button(action: { onActionHandler?() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down")
-                        Text("Get")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color._0X644AFF)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color._0X644AFF.opacity(0.15), in: Capsule())
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel download")
+        } else {
+            switch item.modelStyle.availability {
+            case .available:
+                if isSelected {
+                    Text("Selected")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.green.opacity(0.12), in: Capsule())
+                } else {
+                    Text("Tap to select")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityHint("Double tap to download this model")
 
-            case .updateRequired:
-                Button(action: { onActionHandler?() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Update")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.orange, in: Capsule())
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityHint("Double tap to update this model")
+            case .unavailable(let reason):
+                switch reason {
+                case .notDownloaded:
+                    downloadButton(title: "Get", icon: "arrow.down", tint: Color._0X644AFF)
 
-            case .unknown:
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down")
-                    Text("Get")
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.gray)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.gray.opacity(0.15), in: Capsule())
-                .accessibilityHint("Model is unavailable")
+                case .updateRequired:
+                    downloadButton(title: "Update", icon: "arrow.clockwise", tint: .orange)
 
-            @unknown default:
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down")
-                    Text("Get")
+                case .unknown:
+                    Text("Unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                @unknown default:
+                    Text("Unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.gray)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.gray.opacity(0.15), in: Capsule())
             }
         }
     }
 
-    // MARK: - Helpers
-
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        formatter.includesUnit = true
-        formatter.includesActualByteCount = false
-        return formatter.string(fromByteCount: bytes)
+    private func downloadButton(title: String, icon: String, tint: Color) -> some View {
+        Button(action: onDownloadTap) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(tint, in: Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
     }
 }
-
-// MARK: - Item Model
 
 extension ModelSelectView {
     struct Item: Identifiable {
