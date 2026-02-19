@@ -442,6 +442,8 @@ extension MainViewModel {
                 }
             }
 
+            processingState = .idle
+
         } catch PersoInteractiveError.largeLanguageModelStreamingResponseError(let reason) {
             /// If a failure occurs during the LLM stream, display the message up to the processed portion.
             debugPrint("LLM Streaming Error: - \(reason)")
