@@ -137,16 +137,15 @@ struct ChatView: View {
             ZStack(alignment: .leading) {
                 if newMessage.isEmpty {
                     Text("Type a message...")
-                        .foregroundStyle(._0XB6B6B6)
-                        .font(.system(size: 20))
-                        .padding(.leading, 4)
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 24))
                 }
 
                 TextField("", text: $newMessage)
                     .textFieldStyle(.plain)
                     .focused($isTextFieldFocused)
-                    .padding(.vertical, 8)
-                    .foregroundStyle(.black)
+                    .padding(.vertical)
+                    .foregroundStyle(.primary)
                     .font(.system(size: 24))
                     .autocorrectionDisabled()
                     .submitLabel(.send)

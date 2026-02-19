@@ -84,11 +84,28 @@ struct ControlButton: View {
                     .frame(width: 64, height: 64)
                 }
             }
+            .scaleEffect(isAnimating && type.needsAnimation ? 1.12 : 1.0)
             .scaleEffect(isEnabled ? 1.0 : 0.95)
             .opacity(isEnabled ? 1.0 : 0.5)
         }
         .buttonStyle(PressableButtonStyle())
         .disabled(!isEnabled)
+        .onAppear {
+            if type.needsAnimation {
+                startAnimation()
+            }
+        }
+    }
+
+    private func startAnimation() {
+        if case .recording = type {
+            withAnimation(
+                .easeInOut(duration: 0.8)
+                .repeatForever(autoreverses: true)
+            ) {
+                isAnimating = true
+            }
+        }
     }
 }
 

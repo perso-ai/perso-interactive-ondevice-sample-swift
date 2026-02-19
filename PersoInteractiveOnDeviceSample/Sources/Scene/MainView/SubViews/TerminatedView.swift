@@ -4,18 +4,55 @@
 
 import SwiftUI
 
+import PersoInteractiveOnDeviceSDK
+
 struct TerminatedView: View {
     let retryAction: () -> Void
+    let backAction: () -> Void
 
     var body: some View {
-        VStack {
-            Text("Terminated Session")
-                .foregroundStyle(.white)
-                .font(.subheadline)
+        VStack(spacing: 20) {
+            Image(systemName: "stop.circle")
+                .font(.system(size: 48))
+                .foregroundStyle(.orange)
 
-            Button("Retry", action: retryAction)
-                .buttonStyle(.borderedProminent)
+            Text("Session Terminated")
+                .font(.title3.bold())
+                .foregroundStyle(.white)
+
+            Text("The session has ended. You can retry or go back to select a different model.")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+
+            VStack(spacing: 12) {
+                Button(action: retryAction) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry Session")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color._0X644AFF, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button(action: backAction) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                        Text("Back to Models")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(32)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
