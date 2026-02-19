@@ -7,7 +7,7 @@ import Foundation
 import PersoInteractiveOnDeviceSDK
 
 @MainActor
-final class ConfigureViewModel: ObservableObject {
+final class ConfigurationSectionViewModel: ObservableObject {
 
     struct SelectionSnapshot {
         let sttName: String

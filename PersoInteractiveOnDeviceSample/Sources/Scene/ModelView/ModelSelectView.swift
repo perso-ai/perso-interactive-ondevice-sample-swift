@@ -12,7 +12,7 @@ struct ModelSelectView: View {
     @StateObject private var viewModel: ModelSelectViewModel
     @State private var items: [ModelSelectView.Item] = []
     @State private var selectedModelStyle: ModelStyle?
-    @State private var configureViewModel: ConfigureViewModel?
+    @State private var configureViewModel: ConfigurationSectionViewModel?
     @State private var isModelPickerPresented = false
     @State private var pendingAutoSelectModelID: String?
     @State private var sheetFocusedModelID: String?
@@ -327,7 +327,7 @@ struct ModelSelectView: View {
         let snapshot = configureViewModel?.makeSelectionSnapshot()
         selectedModelStyle = modelStyle
 
-        let vm = ConfigureViewModel(modelStyle: modelStyle)
+        let vm = ConfigurationSectionViewModel(modelStyle: modelStyle)
         configureViewModel = vm
 
         Task {
