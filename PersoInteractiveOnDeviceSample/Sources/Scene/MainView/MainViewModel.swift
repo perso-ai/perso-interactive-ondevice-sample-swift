@@ -296,11 +296,14 @@ extension MainViewModel {
     /// This demonstrates how to configure a session with STT, LLM, and TTS capabilities
     private func createSession() async throws {
         // Select features to use (using first available for simplicity)
-        let sttType = availableSTTTypes.first { $0.name == "default" } ?? availableSTTTypes[0]
-        let llmType = availableLLMTypes.first { $0.name == "azure-gpt-4o" } ?? availableLLMTypes[0]
-        let prompt = availablePrompts.first { $0.name == "sangbeom_v1.0" } ?? availablePrompts[0]
+        guard let sttType = availableSTTTypes.first,
+              let llmType = availableLLMTypes.first,
+              let prompt = availablePrompts.first,
+              let ttsType = availableTTSTypes.first else {
+            debugPrint("CreateSession failed: No features available")
+            return
+        }
         let document = availableDocuments.first
-        let ttsType = availableTTSTypes.first { $0.name == "ansunmi" } ?? availableTTSTypes[0]
         let mcpServers: [MCPServer] = []
 
         // IMPORTANT: Create session with selected capabilities
