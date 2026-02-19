@@ -47,7 +47,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
     private func configureSDK() {
         // STEP 1: Set your API key (required)
         // You can obtain your API key from the developer portal
-        PersoInteractive.apiKey = <#T##String#>
+        PersoInteractive.apiKey = <#YOUR_API_KEY#>
 
         // STEP 2: Configure compute units (optional)
         // .ane - Uses Apple Neural Engine for optimal performance
