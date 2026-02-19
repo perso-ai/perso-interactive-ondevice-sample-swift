@@ -31,13 +31,12 @@ final class ModelSelectViewModel: ObservableObject {
     /// Deleting state
     @Published var isDeleting: Bool = false
 
+    private var downloadTasks: [String: Task<Void, Never>] = [:]
+
     // MARK: - Subjects
 
     /// Signals navigation to main screen when model is ready
     let moveToMainTabScreen = PassthroughSubject<ModelStyle, Never>()
-
-    /// Signals when a model's status has been updated
-    let modelStatusUpdated = PassthroughSubject<ModelStyle, Never>()
 
     // MARK: - Initialization
 
@@ -77,7 +76,8 @@ final class ModelSelectViewModel: ObservableObject {
             moveToMainTabScreen.send(modelStyle)
 
         case .unavailable(_):
-            Task {
+            downloadTasks[item.id]?.cancel()
+            downloadTasks[item.id] = Task {
                 await loadModelResources(modelStyle: modelStyle, for: item.id)
             }
         }
@@ -96,6 +96,13 @@ final class ModelSelectViewModel: ObservableObject {
         isDeleting = false
     }
 
+    /// Cancels an in-progress download for the specified model
+    func cancelDownload(for itemID: String) {
+        downloadTasks[itemID]?.cancel()
+        downloadTasks[itemID] = nil
+        itemsProgress[itemID] = nil
+    }
+
     // MARK: - Private Methods
 
     /// Downloads or updates model resources and tracks progress
@@ -104,11 +111,13 @@ final class ModelSelectViewModel: ObservableObject {
             let stream = PersoInteractive.loadModelStyle(with: modelStyle)
 
             for try await progress in stream {
+                try Task.checkCancellation()
                 switch progress {
                 case .progressing(let progressObj):
                     self.itemsProgress[itemID] = progressObj
                 case .finished(let updatedModelStyle):
                     self.itemsProgress[itemID] = nil
+                    self.downloadTasks[itemID] = nil
                     updateModelStyleStatus(from: updatedModelStyle)
                 }
             }
@@ -116,11 +125,16 @@ final class ModelSelectViewModel: ObservableObject {
             // Stream이 .finished 없이 정상 종료된 경우 cleanup
             if self.itemsProgress[itemID] != nil {
                 self.itemsProgress[itemID] = nil
+                self.downloadTasks[itemID] = nil
                 await fetchModelStyles()
             }
 
+        } catch is CancellationError {
+            self.itemsProgress[itemID] = nil
+            self.downloadTasks[itemID] = nil
         } catch {
             self.itemsProgress[itemID] = nil
+            self.downloadTasks[itemID] = nil
             downloadError = "Download failed: \(error.localizedDescription)"
         }
     }
@@ -129,7 +143,6 @@ final class ModelSelectViewModel: ObservableObject {
     private func updateModelStyleStatus(from modelStyle: ModelStyle) {
         if let index = models.firstIndex(where: { $0.name == modelStyle.name }) {
             models[index] = modelStyle
-            modelStatusUpdated.send(modelStyle)
         }
     }
 }
