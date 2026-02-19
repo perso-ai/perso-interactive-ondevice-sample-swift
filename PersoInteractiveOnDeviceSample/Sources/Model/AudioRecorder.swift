@@ -51,6 +51,7 @@ final class AudioRecorder: @unchecked Sendable {
     ///   - `AudioRecorderError.recordingFailed`: If there is a failure in starting the audio engine.
     ///
     /// - Note: Ensure that `isRecording` is checked before calling this method to avoid attempting to start multiple recordings simultaneously.
+    @MainActor
     func startRecording() async throws {
         guard await checkMicrophonePermission() else {
             throw AudioRecorderError.microphonePermissionDenied
@@ -83,6 +84,7 @@ final class AudioRecorder: @unchecked Sendable {
     ///
     /// - Note: The method uses an asynchronous continuation to handle the asynchronous nature of stopping the recording and processing the audio data.
     /// Ensure that `isRecording` is true before calling this method, as it will throw an error if no recording is active.
+    @MainActor
     func stopRecording() async throws -> Data {
         defer {
             mutableState.withLock { $0.recordedBuffers.removeAll() }

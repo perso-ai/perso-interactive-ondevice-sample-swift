@@ -89,6 +89,9 @@ final class MainViewModel: ObservableObject {
     /// Audio recorder for voice input
     private let recorder = AudioRecorder()
 
+    /// Task for SDK initialization
+    private var initTask: Task<Void, Never>?
+
     /// Task for managing async conversation processing
     private var processingTask: Task<Void, Never>?
 
@@ -104,13 +107,14 @@ final class MainViewModel: ObservableObject {
     // MARK: - Initialization
 
     deinit {
+        initTask?.cancel()
         processingTask?.cancel()
     }
 
     init(configuration: SessionConfiguration) {
         self.configuration = configuration
 
-        Task { [weak self] in
+        initTask = Task { [weak self] in
             do {
                 // STEP 1: Load the SDK (prepares models and resources)
                 try await PersoInteractive.load()
