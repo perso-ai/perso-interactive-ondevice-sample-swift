@@ -91,7 +91,7 @@ struct ChatView: View {
             if viewModel.chatResponseState == .streaming,
                !viewModel.streamingResponse.isEmpty {
                 HStack(alignment: .bottom, spacing: 12) {
-                    StreamingBubbleView(text: viewModel.streamingResponse)
+                    BubbleView(text: viewModel.streamingResponse, style: .assistant, showContextMenu: false)
                         .padding(.trailing)
                     Spacer(minLength: 0)
                 }
@@ -113,10 +113,10 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 12) {
             if message.role == .user {
                 Spacer(minLength: 0)
-                ChatBubbleView(message: message)
+                BubbleView(text: message.content ?? "", style: .user)
                     .padding(.leading)
             } else if message.role == .assistant {
-                ChatBubbleView(message: message)
+                BubbleView(text: message.content ?? "", style: .assistant)
                     .padding(.trailing)
                 Spacer(minLength: 0)
             }
@@ -183,26 +183,6 @@ private var chatRetryCornerRadius: CGFloat {
     #else
     12
     #endif
-}
-
-// MARK: - Streaming Bubble
-
-private struct StreamingBubbleView: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 24, weight: .regular))
-            .textSelection(.disabled)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .lineSpacing(10)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 18)
-            .foregroundStyle(.white)
-            .background(Color._0X1C1C1E)
-            .clipShape(RoundedRectangle(cornerRadius: chatBubbleCornerRadius, style: .continuous))
-    }
 }
 
 // MARK: - Typing Indicator
