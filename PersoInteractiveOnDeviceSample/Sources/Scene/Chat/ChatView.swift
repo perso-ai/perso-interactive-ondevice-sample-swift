@@ -169,20 +169,22 @@ struct ChatView: View {
 
 // MARK: - Corner Radius Helper
 
-private var chatBubbleCornerRadius: CGFloat {
-    #if os(iOS) || os(visionOS)
-    UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
-    #else
-    20
-    #endif
-}
+extension ChatView {
+    private var chatBubbleCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
 
-private var chatRetryCornerRadius: CGFloat {
-    #if os(iOS) || os(visionOS)
-    UIDevice.current.userInterfaceIdiom == .phone ? 8 : 12
-    #else
-    12
-    #endif
+    private var chatRetryCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 8 : 12
+        #else
+        12
+        #endif
+    }
 }
 
 // MARK: - Typing Indicator
