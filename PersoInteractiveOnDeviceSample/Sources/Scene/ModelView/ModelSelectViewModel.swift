@@ -50,15 +50,6 @@ final class ModelSelectViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        // Check API Key is valid
-        do {
-            let _ = try await PersoInteractive.fetchAvailableLLMModels()
-        } catch {
-            errorMessage = "No models available"
-            isLoading = false
-            return
-        }
-
         do {
             let modelStyles = try await PersoInteractive.fetchAvailableModelStyles()
 
