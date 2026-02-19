@@ -84,6 +84,12 @@ final class MainViewModel: ObservableObject {
     /// Recording status
     @Published private(set) var isRecording: Bool = false
 
+    /// Loading stage message shown during initialization
+    @Published var loadingMessage: String = "Loading model..."
+
+    /// Error toast message for transient user-facing errors
+    @Published var errorToast: String?
+
     private var cancellables = Set<AnyCancellable>()
 
     /// Audio recorder for voice input
@@ -116,14 +122,17 @@ final class MainViewModel: ObservableObject {
 
         initTask = Task { [weak self] in
             do {
+                guard let self else { return }
+                self.loadingMessage = "Loading model..."
                 // STEP 1: Load the SDK (prepares models and resources)
                 try await PersoInteractive.load()
 
+                self.loadingMessage = "Warming up..."
                 // STEP 2: Warmup the SDK (optimizes for first use)
                 try await PersoInteractive.warmup()
 
+                self.loadingMessage = "Creating session..."
                 // STEP 3: Initialize a new session
-                guard let self else { return }
                 await self.initializeSession()
 
                 // STEP 4: Bind UI state to properties
@@ -400,6 +409,7 @@ extension MainViewModel {
             debugPrint("STT conversation error: \(error)")
             chatResponseState = .error("Speech recognition failed. Please try again.")
             processingState = .idle
+            errorToast = "Speech recognition failed. Please try again."
         }
 
         processingTask = nil
@@ -461,6 +471,7 @@ extension MainViewModel {
             debugPrint("LLM Streaming Error: - \(reason)")
             chatResponseState = .error("An error occurred during response streaming.")
             processingState = .idle
+            errorToast = "Response generation failed. Please try again."
         } catch PersoInteractiveError.taskCancelled {
             debugPrint("LLM Task Cancelled")
             chatResponseState = .idle
@@ -469,6 +480,7 @@ extension MainViewModel {
             debugPrint("LLM conversation error: - \(error.localizedDescription)")
             chatResponseState = .error("An error occurred while processing the response. Please try again.")
             processingState = .idle
+            errorToast = "Conversation error. Please try again."
         }
 
         processingTask = nil
