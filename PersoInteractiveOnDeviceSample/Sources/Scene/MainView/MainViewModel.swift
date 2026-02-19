@@ -110,7 +110,7 @@ final class MainViewModel: ObservableObject {
     init(configuration: SessionConfiguration) {
         self.configuration = configuration
 
-        Task {
+        Task { [weak self] in
             do {
                 // STEP 1: Load the SDK (prepares models and resources)
                 try await PersoInteractive.load()
@@ -119,12 +119,14 @@ final class MainViewModel: ObservableObject {
                 try await PersoInteractive.warmup()
 
                 // STEP 3: Initialize a new session
-                await initializeSession()
+                guard let self else { return }
+                await self.initializeSession()
 
                 // STEP 4: Bind UI state to properties
-                bind()
+                self.bind()
             } catch {
-                uiState = .error("initialization occured an error: \(error).\nPlease try again.")
+                guard let self else { return }
+                self.uiState = .error("initialization occured an error: \(error).\nPlease try again.")
             }
         }
     }
@@ -173,6 +175,7 @@ final class MainViewModel: ObservableObject {
         messages.append(userMessage)
         lastSentMessage = message
 
+        processingTask?.cancel()
         processingTask = Task { [weak self] in
             await self?.processConversation(message: message)
         }
@@ -342,6 +345,7 @@ extension MainViewModel {
 
     /// Stops audio recording and processes the recorded audio
     private func stopRecording() {
+        processingTask?.cancel()
         processingTask = Task { [weak self] in
             guard let self else { return }
 
