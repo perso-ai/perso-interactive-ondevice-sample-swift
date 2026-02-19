@@ -5,11 +5,14 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
-import Synchronization
+import os
 
 // SAFETY: @unchecked Sendable is justified because all shared mutable state
-// is protected by `mutableState: Mutex<MutableState>`. isRecording is only
-// mutated from main-thread contexts.
+// is protected by `mutableState: OSAllocatedUnfairLock<MutableState>`.
+// isRecording is only mutated from main-thread contexts.
+//
+// When adopting Swift 6.1+, `Mutex.withLockUnchecked` can be used
+// instead of `OSAllocatedUnfairLock` to handle non-Sendable types in the same way.
 final class AudioRecorder: @unchecked Sendable {
 
     private var cancellables = Set<AnyCancellable>()
@@ -21,7 +24,7 @@ final class AudioRecorder: @unchecked Sendable {
         var recordedBuffers: [AVAudioPCMBuffer] = []
         var targetFormat: AVAudioFormat?
     }
-    private let mutableState = Mutex(MutableState())
+    private let mutableState = OSAllocatedUnfairLock(uncheckedState: MutableState())
 
     /// Recording Status
     /// - If you want to continuously observe state changes, you can use a `Publisher`.
@@ -32,7 +35,7 @@ final class AudioRecorder: @unchecked Sendable {
     }
 
     deinit {
-        mutableState.withLock { state in
+        mutableState.withLockUnchecked { state in
             state.audioEngine?.inputNode.removeTap(onBus: 0)
             state.audioEngine?.stop()
             state.audioEngine = nil
@@ -67,9 +70,9 @@ final class AudioRecorder: @unchecked Sendable {
 
         guard !isRecording else { throw AudioRecorderError.alreadyRecording }
 
-        mutableState.withLock { $0.recordedBuffers.removeAll() }
+        mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
         let engine = try setupAudioEngine()
-        mutableState.withLock { $0.audioEngine = engine }
+        mutableState.withLockUnchecked { $0.audioEngine = engine }
         isRecording = true
     }
 
@@ -87,7 +90,7 @@ final class AudioRecorder: @unchecked Sendable {
     @MainActor
     func stopRecording() async throws -> Data {
         defer {
-            mutableState.withLock { $0.recordedBuffers.removeAll() }
+            mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
             self.isRecording = false
         }
 
@@ -95,7 +98,7 @@ final class AudioRecorder: @unchecked Sendable {
             throw AudioRecorderError.notRecordingMode
         }
 
-        let (buffers, targetFormat) = mutableState.withLock { state -> ([AVAudioPCMBuffer], AVAudioFormat?) in
+        let (buffers, targetFormat) = mutableState.withLockUnchecked { state -> ([AVAudioPCMBuffer], AVAudioFormat?) in
             state.audioEngine?.inputNode.removeTap(onBus: 0)
             state.audioEngine?.stop()
             state.audioEngine = nil
@@ -141,7 +144,7 @@ extension AudioRecorder {
             interleaved: false
         ) else { throw AudioRecorderError.recordingFailed }
 
-        mutableState.withLock { $0.targetFormat = targetFormat }
+        mutableState.withLockUnchecked { $0.targetFormat = targetFormat }
 
         guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
             throw AudioRecorderError.formatConversionIsNotPossible
@@ -156,9 +159,9 @@ extension AudioRecorder {
             do {
                 // Resample audio buffer from 48kHz to 16kHz
                 let resampledBuffer = try resampleBuffer(buffer, with: converter)
-                mutableState.withLock { $0.recordedBuffers.append(resampledBuffer) }
+                mutableState.withLockUnchecked { $0.recordedBuffers.append(resampledBuffer) }
             } catch {
-                mutableState.withLock { $0.recordedBuffers.removeAll() }
+                mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
             }
         }
 
@@ -194,7 +197,7 @@ extension AudioRecorder {
     }
 
     private func cancelRecording() {
-        mutableState.withLock { state in
+        mutableState.withLockUnchecked { state in
             state.audioEngine?.inputNode.removeTap(onBus: 0)
             state.audioEngine?.stop()
             state.audioEngine = nil
