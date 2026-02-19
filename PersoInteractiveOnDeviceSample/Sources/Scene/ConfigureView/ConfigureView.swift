@@ -243,14 +243,6 @@ struct ConfigureView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(.primary)
-
-                if let description = viewModel.availablePrompts[viewModel.selectedPromptIndex].description {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                }
             }
         }
     }
