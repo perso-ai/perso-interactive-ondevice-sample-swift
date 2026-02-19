@@ -73,6 +73,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
 #if os(macOS)
 import AppKit
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // Return true to trigger applicationWillTerminate when the last window closes
