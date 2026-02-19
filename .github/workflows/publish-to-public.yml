@@ -1,0 +1,43 @@
+name: Publish to Public Repo
+
+on:
+  push:
+    tags:
+      - 'publish-*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Clean up internal files
+        run: rm -rf .github
+
+      - name: Push to public repo
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no"
+
+          git config user.name "Perso.Interactive"
+          git config user.email "Perso.Interactive@estsoft.com"
+
+          git clone --depth=1 git@github.com:perso-ai/perso-interactive-ondevice-sample-swift.git public-repo || \
+          git init public-repo
+
+          cd public-repo
+          git rm -rf . 2>/dev/null || true
+          cp -r ../* . 2>/dev/null || true
+          cp -r ../.[!.]* . 2>/dev/null || true
+          rm -rf .github
+
+          git add -A
+          git diff --cached --quiet && echo "No changes to publish" && exit 0
+          git commit -m "update sample"
+          git push --force
