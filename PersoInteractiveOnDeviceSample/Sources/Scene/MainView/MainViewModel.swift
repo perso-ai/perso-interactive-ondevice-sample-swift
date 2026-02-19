@@ -97,6 +97,9 @@ final class MainViewModel: ObservableObject {
     private var availableTTSTypes: [TTSType] = []
     private var availableMCPServers: [MCPServer] = []
 
+    /// Flag to prevent terminated callback from overriding UI state during restart
+    private var isRestarting = false
+
     /// Task for managing async conversation processing
     private var processingTask: Task<Void, Never>?
 
@@ -142,6 +145,13 @@ final class MainViewModel: ObservableObject {
     /// Initializes or reinitializes the chat session
     /// This demonstrates the complete SDK session setup flow
     func initializeSession() async {
+        // Stop existing session before creating a new one
+        if session != nil {
+            isRestarting = true
+            PersoInteractive.stopSession()
+            session = nil
+        }
+
         uiState = .idle
         aiHumanState = .idle
         processingState = .idle
@@ -197,10 +207,6 @@ final class MainViewModel: ObservableObject {
         handleAssistantMessage = callback
     }
 
-    /// Stops the current session
-    func stopSession() {
-        PersoInteractive.stopSession()
-    }
 }
 
 // MARK: - User Actions
@@ -219,11 +225,12 @@ extension MainViewModel {
 
     /// Restarts the session completely (stops speech, clears state, reinitializes)
     func restartSession() {
-        // Cancel any ongoing task
         processingTask?.cancel()
         processingTask = nil
         Task {
             await stopSpeech?()
+            stopSpeech = nil
+            startRecording = nil
             processingState = .idle
             chatResponseState = .idle
             streamingResponse = ""
@@ -321,7 +328,11 @@ extension MainViewModel {
             case .terminated:
                 self.session = nil
                 Task { @MainActor in
-                    self.uiState = .terminated
+                    if self.isRestarting {
+                        self.isRestarting = false
+                    } else {
+                        self.uiState = .terminated
+                    }
                 }
             default:
                 break
