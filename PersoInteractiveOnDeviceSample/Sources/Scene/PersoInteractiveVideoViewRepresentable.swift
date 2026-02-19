@@ -86,6 +86,7 @@ struct PersoInteractiveVideoViewRepresentable: ViewRepresentable {
 
                 // Add intro message to chat history
                 viewModel.messages.append(.assistant(message))
+                viewModel.processingState = .idle
             }
         }
 
