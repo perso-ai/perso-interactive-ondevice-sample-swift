@@ -304,19 +304,24 @@ extension MainViewModel {
             }
         }
 
+        // SAFETY: nonisolated(unsafe) is required because Set<SessionCapability> and
+        // modelStyle are non-Sendable types that must cross the @MainActor boundary.
+        nonisolated(unsafe) let capabilities: Set<SessionCapability> = [
+            // Speech recognition
+            .speechToText(type: sttType),
+            // Language model with system prompt and optional document context
+            .largeLanguageModel(llmType: llmType,
+                                promptID: prompt.id,
+                                documentID: document?.id,
+                                mcpServerIDs: mcpServers.map(\.id)),
+            // Speech synthesis
+            .textToSpeech(type: ttsType)
+        ]
+        nonisolated(unsafe) let modelStyle = configuration.modelStyle
+
         let session = try await PersoInteractive.createSession(
-            for: [
-                // Speech recognition
-                .speechToText(type: sttType),
-                // Language model with system prompt and optional document context
-                .largeLanguageModel(llmType: llmType,
-                                    promptID: prompt.id,
-                                    documentID: document?.id,
-                                    mcpServerIDs: mcpServers.map(\.id)),
-                // Speech synthesis
-                .textToSpeech(type: ttsType)
-            ],
-            modelStyle: configuration.modelStyle,
+            for: capabilities,
+            modelStyle: modelStyle,
             statusHandler: statusHandler
         )
 
@@ -375,8 +380,11 @@ extension MainViewModel {
         do {
             processingState = .stt
 
+            // SAFETY: nonisolated(unsafe) is required to transfer non-Sendable
+            // PersoInteractiveSession across the @MainActor isolation boundary.
+            nonisolated(unsafe) let sttSession = session
             // STEP 1: Transcribe audio to text using SDK's STT
-            let userText = try await session.transcribeAudio(audio: audio)
+            let userText = try await sttSession.transcribeAudio(audio: audio)
 
             // Add user message to chat history
             let userMessage: ChatMessage = .user(userText)

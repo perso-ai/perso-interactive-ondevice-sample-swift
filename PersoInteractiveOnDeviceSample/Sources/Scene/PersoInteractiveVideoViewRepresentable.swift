@@ -4,7 +4,7 @@
 
 import SwiftUI
 
-import PersoInteractiveOnDeviceSDK
+@preconcurrency import PersoInteractiveOnDeviceSDK
 
 // MARK: - Platform Compatibility
 
@@ -145,26 +145,25 @@ extension PersoInteractiveVideoViewRepresentable {
         func persoInteractiveVideoView(didChangeState state: PersoInteractiveVideoView.VideoState) {
             debugPrint("persoVideoView didChangeState: \(state)")
 
-            Task {
-                await MainActor.run { [weak self] in
-                    switch state {
-                    case .waiting(let phase):
-                        // Video is in waiting/idle state
-                        switch phase {
-                        case .idle:
-                            // AI human is completely idle
-                            self?.viewModel.updateHumanState(.idle)
-                        case .transition:
-                            // AI human is transitioning between states
-                            self?.viewModel.updateHumanState(.transition)
-                        case .standby:
-                            // AI human is ready to speak
-                            self?.viewModel.updateHumanState(.standby)
-                        }
-                    case .processing:
-                        // AI human is currently speaking
-                        self?.viewModel.updateHumanState(.speaking)
+            let viewModel = self.viewModel
+            Task { @MainActor in
+                switch state {
+                case .waiting(let phase):
+                    // Video is in waiting/idle state
+                    switch phase {
+                    case .idle:
+                        // AI human is completely idle
+                        viewModel.updateHumanState(.idle)
+                    case .transition:
+                        // AI human is transitioning between states
+                        viewModel.updateHumanState(.transition)
+                    case .standby:
+                        // AI human is ready to speak
+                        viewModel.updateHumanState(.standby)
                     }
+                case .processing:
+                    // AI human is currently speaking
+                    viewModel.updateHumanState(.speaking)
                 }
             }
         }
