@@ -99,6 +99,11 @@ struct ConfigurationSectionView: View {
             startSessionButton
                 .padding(.top, 4)
         }
+        .onChange(of: viewModel.selectedPromptIndex) { _, _ in
+            if viewModel.selectedPromptRequiresDocument && viewModel.selectedDocumentIndex == nil {
+                viewModel.selectedDocumentIndex = viewModel.availableDocuments.indices.first
+            }
+        }
     }
 
     // MARK: - Header
@@ -253,7 +258,9 @@ struct ConfigurationSectionView: View {
                 description: "RAG document for contextual knowledge"
             ) {
                 Picker("Document", selection: $viewModel.selectedDocumentIndex) {
-                    Text("None").tag(nil as Int?)
+                    if !viewModel.selectedPromptRequiresDocument {
+                        Text("None").tag(nil as Int?)
+                    }
                     ForEach(viewModel.availableDocuments.indices, id: \.self) { index in
                         Text(viewModel.availableDocuments[index].title)
                             .tag(index as Int?)
@@ -261,6 +268,26 @@ struct ConfigurationSectionView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(.primary)
+
+                if viewModel.isDocumentSelectionMissing {
+                    Label("Selected prompt requires a document", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.top, 4)
+                }
+            }
+        } else if viewModel.selectedPromptRequiresDocument {
+            ConfigurationCard(
+                icon: "doc.text",
+                iconColor: .cyan,
+                title: "Document",
+                subtitle: "No documents available",
+                description: "RAG document for contextual knowledge"
+            ) {
+                Label("Selected prompt requires a document, but none are available",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
         }
     }

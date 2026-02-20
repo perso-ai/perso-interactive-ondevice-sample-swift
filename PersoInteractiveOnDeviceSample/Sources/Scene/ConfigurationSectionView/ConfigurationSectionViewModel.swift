@@ -160,10 +160,20 @@ import PersoInteractiveOnDeviceSDK
         )
     }
 
+    var selectedPromptRequiresDocument: Bool {
+        guard availablePrompts.indices.contains(selectedPromptIndex) else { return false }
+        return availablePrompts[selectedPromptIndex].requireDocument == true
+    }
+
+    var isDocumentSelectionMissing: Bool {
+        selectedPromptRequiresDocument && selectedDocumentIndex == nil
+    }
+
     var canStartSession: Bool {
         !availableSTTTypes.isEmpty &&
         !availableLLMTypes.isEmpty &&
         !availablePrompts.isEmpty &&
-        !availableTTSTypes.isEmpty
+        !availableTTSTypes.isEmpty &&
+        !isDocumentSelectionMissing
     }
 }
