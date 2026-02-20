@@ -13,7 +13,7 @@ struct StartedView: View {
     let session: PersoInteractiveSession
     let geometry: GeometryProxy
 
-    @State private var orientation: ViewOrientation = .unowned
+    @State private var orientation: ViewOrientation = .unknown
 
     @Environment(MainViewModel.self) var viewModel
 
@@ -26,7 +26,7 @@ struct StartedView: View {
     enum ViewOrientation {
         case portrait
         case landscape
-        case unowned
+        case unknown
     }
 
     var body: some View {
