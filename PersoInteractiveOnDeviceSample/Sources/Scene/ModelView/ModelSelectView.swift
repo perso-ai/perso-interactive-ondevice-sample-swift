@@ -74,7 +74,21 @@ struct ModelSelectView: View {
                 progressByID: viewModel.itemsProgress,
                 onRowTap: handleSheetRowTap(_:),
                 onDownloadTap: handleDownloadTap(_:),
-                onCancelDownload: handleCancelDownload(_:)
+                onCancelDownload: handleCancelDownload(_:),
+                onDeleteAll: {
+                    Task {
+                        await viewModel.deleteAllDownloadedModels()
+                    }
+                    selectedModelStyle = nil
+                    configureViewModel = nil
+                },
+                isDeleting: viewModel.isDeleting,
+                hasDownloadedModels: viewModel.models.contains {
+                    if case .available = $0.availability { return true }
+                    if case .unavailable(let reason) = $0.availability,
+                       case .updateRequired = reason { return true }
+                    return false
+                }
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -418,6 +432,11 @@ private struct ModelPickerSheetView: View {
     let onRowTap: (ModelSelectView.Item) -> Void
     let onDownloadTap: (ModelSelectView.Item) -> Void
     let onCancelDownload: (ModelSelectView.Item) -> Void
+    let onDeleteAll: () -> Void
+    let isDeleting: Bool
+    let hasDownloadedModels: Bool
+
+    @State private var showDeleteAlert = false
 
     var body: some View {
         NavigationStack {
@@ -429,6 +448,27 @@ private struct ModelPickerSheetView: View {
                         }
                         .keyboardShortcut(.cancelAction)
                     }
+
+                    ToolbarItem(placement: .automatic) {
+                        if isDeleting {
+                            ProgressView()
+                        } else {
+                            Button {
+                                showDeleteAlert = true
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .disabled(!hasDownloadedModels || isDeleting)
+                        }
+                    }
+                }
+                .alert("Delete All Models", isPresented: $showDeleteAlert) {
+                    Button("Delete All", role: .destructive) {
+                        onDeleteAll()
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("All downloaded model data will be removed. You can re-download them later.")
                 }
         }
     }
@@ -459,7 +499,8 @@ private struct ModelPickerSheetView: View {
                             progress: progressByID[item.id],
                             onTap: { onRowTap(item) },
                             onDownloadTap: { onDownloadTap(item) },
-                            onCancelTap: { onCancelDownload(item) }
+                            onCancelTap: { onCancelDownload(item) },
+                            isDeleting: isDeleting
                         )
                     }
                 }
@@ -492,6 +533,7 @@ private struct ModelPickerRow: View {
     let onTap: () -> Void
     let onDownloadTap: () -> Void
     let onCancelTap: () -> Void
+    let isDeleting: Bool
 
     private var isDownloading: Bool {
         progress != nil && item.modelStyle.availability != .available
@@ -709,6 +751,8 @@ private struct ModelPickerRow: View {
             .background(tint, in: Capsule())
         }
         .buttonStyle(PressableButtonStyle())
+        .opacity(isDeleting ? 0.5 : 1.0)
+        .disabled(isDeleting)
     }
 }
 
