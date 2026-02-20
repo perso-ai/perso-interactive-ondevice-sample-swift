@@ -112,13 +112,13 @@ final class AudioRecorder: @unchecked Sendable {
             throw AudioRecorderError.notExistRecordingData
         }
 
-        let url = FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)
-            .first!
-            .appending(path: "temp.wav")
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "temp_recording.wav")
 
         try writeToAudioFile(buffer, url: url)
-        return try Data(contentsOf: url)
+        let data = try Data(contentsOf: url)
+        try? FileManager.default.removeItem(at: url)
+        return data
     }
 
 }
@@ -203,7 +203,9 @@ extension AudioRecorder {
             state.audioEngine = nil
             state.recordedBuffers.removeAll()
         }
-        isRecording = false
+        MainActor.assumeIsolated {
+            isRecording = false
+        }
     }
 
     private func writeToAudioFile(_ buffer: AVAudioPCMBuffer, url: URL) throws {
