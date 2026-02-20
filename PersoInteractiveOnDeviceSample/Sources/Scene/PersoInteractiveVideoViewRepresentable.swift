@@ -4,7 +4,7 @@
 
 import SwiftUI
 
-@preconcurrency import PersoInteractiveOnDeviceSDK
+import PersoInteractiveOnDeviceSDK
 
 // MARK: - Platform Compatibility
 
@@ -19,7 +19,7 @@ typealias ViewRepresentable = NSViewRepresentable
 /// SwiftUI wrapper for the SDK's PersoInteractiveVideoView
 /// This demonstrates how to embed the native video view in SwiftUI
 struct PersoInteractiveVideoViewRepresentable: ViewRepresentable {
-    @EnvironmentObject var viewModel: MainViewModel
+    @Environment(MainViewModel.self) var viewModel
 
     /// The session that provides video rendering
     private let session: PersoInteractiveSession

@@ -11,7 +11,7 @@ import PersoInteractiveOnDeviceSDK
 
 struct ChatView: View {
 
-    @EnvironmentObject private var viewModel: MainViewModel
+    @Environment(MainViewModel.self) private var viewModel
     @State private var newMessage: String = ""
     @FocusState private var isTextFieldFocused: Bool
 

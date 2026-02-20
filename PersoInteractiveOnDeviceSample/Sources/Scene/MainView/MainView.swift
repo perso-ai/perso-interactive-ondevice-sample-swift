@@ -11,13 +11,13 @@ struct MainView: View {
 
     // MARK: - Properties
     @Binding var path: [Screen]
-    @StateObject private var viewModel: MainViewModel
+    @State private var viewModel: MainViewModel
     @State private var showEndSessionAlert = false
 
     // MARK: - Initialization
 
     init(path: Binding<[Screen]>, configuration: SessionConfiguration) {
-        self._viewModel = .init(wrappedValue: .init(configuration: configuration))
+        self._viewModel = State(initialValue: MainViewModel(configuration: configuration))
         self._path = path
 
 #if os(iOS)
@@ -38,7 +38,7 @@ struct MainView: View {
                     IdleView(message: viewModel.loadingMessage)
                 case .started(let session):
                     StartedView(session: session, geometry: geometry)
-                        .environmentObject(viewModel)
+                        .environment(viewModel)
                 case .terminated:
                     TerminatedView(
                         retryAction: { Task { await viewModel.initializeSession() } },

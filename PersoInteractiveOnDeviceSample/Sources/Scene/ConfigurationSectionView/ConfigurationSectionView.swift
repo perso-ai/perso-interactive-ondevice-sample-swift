@@ -12,7 +12,7 @@ import PersoInteractiveOnDeviceSDK
 /// Renders model identity, all configuration cards, and a Start Session button.
 struct ConfigurationSectionView: View {
 
-    @ObservedObject var viewModel: ConfigurationSectionViewModel
+    @Bindable var viewModel: ConfigurationSectionViewModel
     let modelStyle: ModelStyle
     @Binding var path: [Screen]
     var showsModelHeader: Bool = true

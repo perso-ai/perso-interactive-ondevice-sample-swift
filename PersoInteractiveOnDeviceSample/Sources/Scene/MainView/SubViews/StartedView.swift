@@ -15,7 +15,7 @@ struct StartedView: View {
 
     @State private var orientation: ViewOrientation = .unowned
 
-    @EnvironmentObject var viewModel: MainViewModel
+    @Environment(MainViewModel.self) var viewModel
 
     #if os(iOS)
     private var isPhone: Bool {
@@ -43,7 +43,7 @@ struct StartedView: View {
     private var contentView: some View {
         HSplitView {
             PersoInteractiveVideoViewRepresentable(session: session)
-                .environmentObject(viewModel)
+                .environment(viewModel)
                 .ignoresSafeArea(.all)
                 .overlay(alignment: .bottomLeading) {
                     controlButtons
@@ -79,7 +79,7 @@ struct StartedView: View {
 
     private var phoneContentView: some View {
         PersoInteractiveVideoViewRepresentable(session: session)
-            .environmentObject(viewModel)
+            .environment(viewModel)
             .ignoresSafeArea(.all)
             .overlay(alignment: .bottomLeading) {
                 if !viewModel.isChatHistoryVisible {
@@ -120,7 +120,7 @@ struct StartedView: View {
     private var padContentView: some View {
         HStack {
             PersoInteractiveVideoViewRepresentable(session: session)
-                .environmentObject(viewModel)
+                .environment(viewModel)
                 .ignoresSafeArea(.all)
                 .overlay(alignment: .bottomLeading) {
                     controlButtons
@@ -249,7 +249,7 @@ struct StartedView: View {
     private var chatView: some View {
         ChatView()
             .background(.clear)
-            .environmentObject(viewModel)
+            .environment(viewModel)
     }
 }
 
