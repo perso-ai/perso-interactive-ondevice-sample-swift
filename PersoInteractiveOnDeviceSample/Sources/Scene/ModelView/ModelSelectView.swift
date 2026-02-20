@@ -9,8 +9,7 @@ import PersoInteractiveOnDeviceSDK
 struct ModelSelectView: View {
 
     @Binding var path: [Screen]
-    @StateObject private var viewModel: ModelSelectViewModel
-    @State private var items: [ModelSelectView.Item] = []
+    @State private var viewModel: ModelSelectViewModel
     @State private var selectedModelStyle: ModelStyle?
     @State private var configureViewModel: ConfigurationSectionViewModel?
     @State private var isModelPickerPresented = false
@@ -19,11 +18,11 @@ struct ModelSelectView: View {
 
     init(path: Binding<[Screen]>) {
         self._path = path
-        self._viewModel = .init(wrappedValue: .init())
+        self._viewModel = State(initialValue: ModelSelectViewModel())
     }
 
     private var sortedItems: [Item] {
-        items.sorted { lhs, rhs in
+        viewModel.models.map { Item(modelStyle: $0) }.sorted { lhs, rhs in
             let lhsPriority = availabilityPriority(for: lhs.modelStyle)
             let rhsPriority = availabilityPriority(for: rhs.modelStyle)
 
@@ -55,8 +54,8 @@ struct ModelSelectView: View {
         .task {
             await viewModel.fetchModelStyles()
         }
-        .onReceive(viewModel.$models) { modelStyles in
-            updateItems(with: modelStyles)
+        .onChange(of: viewModel.models, initial: true) { _, newValue in
+            syncSelectionState(with: newValue)
         }
         .navigationBarBackButtonHidden()
         .alert("Download Failed", isPresented: Binding(
@@ -285,9 +284,7 @@ struct ModelSelectView: View {
         }
     }
 
-    private func updateItems(with modelStyles: [ModelStyle]) {
-        items = modelStyles.map { Item(modelStyle: $0) }
-
+    private func syncSelectionState(with modelStyles: [ModelStyle]) {
         if let selectedName = selectedModelStyle?.name {
             if let refreshedSelected = modelStyles.first(where: { $0.name == selectedName }) {
                 selectedModelStyle = refreshedSelected
@@ -305,14 +302,14 @@ struct ModelSelectView: View {
             return
         }
 
-        guard let readyItem = items.first(where: {
-            $0.id == pendingID && $0.modelStyle.availability == .available
+        guard let readyModel = viewModel.models.first(where: {
+            $0.name == pendingID && $0.availability == .available
         }) else {
             return
         }
 
         pendingAutoSelectModelID = nil
-        selectModel(readyItem.modelStyle, closePicker: true)
+        selectModel(readyModel, closePicker: true)
     }
 
     private func selectModel(_ modelStyle: ModelStyle, closePicker: Bool = false) {
