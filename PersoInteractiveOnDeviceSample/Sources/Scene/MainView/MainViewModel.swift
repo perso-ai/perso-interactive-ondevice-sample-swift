@@ -127,6 +127,11 @@ import PersoInteractiveOnDeviceSDK
         initTask = Task { [weak self] in
             do {
                 guard let self else { return }
+
+                // Prepare audio engine before SDK initialization to secure
+                // the HALC proxy I/O context on macOS.
+                try? self.recorder.prepare()
+
                 self.loadingMessage = "Loading model..."
                 // STEP 1: Load the SDK (prepares models and resources)
                 try await PersoInteractive.load()

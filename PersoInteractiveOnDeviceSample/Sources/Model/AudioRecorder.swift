@@ -23,6 +23,8 @@ final class AudioRecorder: @unchecked Sendable {
         var audioEngine: AVAudioEngine?
         var recordedBuffers: [AVAudioPCMBuffer] = []
         var targetFormat: AVAudioFormat?
+        var converter: AVAudioConverter?
+        var originAudioFormat: AVAudioFormat?
     }
     private let mutableState = OSAllocatedUnfairLock(uncheckedState: MutableState())
 
@@ -43,10 +45,47 @@ final class AudioRecorder: @unchecked Sendable {
         }
     }
 
+    // MARK: - Engine Lifecycle
+
+    /// Prepares and starts the audio engine to secure the HALC proxy I/O context
+    /// before other audio consumers (e.g., SDK TTS) occupy the audio hardware.
+    ///
+    /// Call this **before** initializing the SDK session.
+    func prepare() throws {
+        let audioEngine = AVAudioEngine()
+        let inputNode = audioEngine.inputNode
+        let bus: AVAudioNodeBus = 0
+
+        let originAudioFormat = inputNode.outputFormat(forBus: bus)
+
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: targetSampleRate,
+            channels: AVAudioChannelCount(1),
+            interleaved: false
+        ) else { throw AudioRecorderError.recordingFailed }
+
+        guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
+            throw AudioRecorderError.formatConversionIsNotPossible
+        }
+
+        audioEngine.prepare()
+        try audioEngine.start()
+
+        mutableState.withLockUnchecked { state in
+            state.audioEngine = audioEngine
+            state.targetFormat = targetFormat
+            state.converter = converter
+            state.originAudioFormat = originAudioFormat
+        }
+    }
+
+    // MARK: - Recording
+
     /// Starts recording audio from the microphone.
     ///
-    /// This method sets up an audio tap on the input node of the audio engine, converts the audio buffer to the desired format,
-    /// and stores it for further processing. The recording process starts the audio engine and begins capturing audio data.
+    /// If the engine was pre-started via `prepare()`, installs a tap on the existing engine.
+    /// Otherwise, creates and starts a new engine (fallback).
     ///
     /// - Throws:
     ///   - `AudioRecorderError.microphonePermissionDenied`: If microphone permission is not granted.
@@ -70,23 +109,34 @@ final class AudioRecorder: @unchecked Sendable {
 
         guard !isRecording else { throw AudioRecorderError.alreadyRecording }
 
-        mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
-        let engine = try setupAudioEngine()
-        mutableState.withLockUnchecked { $0.audioEngine = engine }
+        let (engine, converter, originFormat) = mutableState.withLockUnchecked { state in
+            state.recordedBuffers.removeAll()
+            return (state.audioEngine, state.converter, state.originAudioFormat)
+        }
+
+        if let engine, let converter, let originFormat {
+            // Engine already prepared — restart if needed, then install tap
+            if !engine.isRunning {
+                engine.prepare()
+                try engine.start()
+            }
+            try installTap(on: engine, converter: converter, format: originFormat)
+        } else {
+            // Fallback: create and start a new engine
+            let newEngine = try setupAudioEngine()
+            mutableState.withLockUnchecked { $0.audioEngine = newEngine }
+        }
+
         isRecording = true
     }
 
     /// Stops the ongoing audio recording and returns the recorded audio data in `Data` format.
     ///
-    /// This method stops the audio engine, removes the audio tap from the input node, and processes the captured audio buffers.
-    /// The audio data is then converted into the specified format and returned as a `Data` object.
+    /// Removes the tap but keeps the engine running for future recordings.
     ///
     /// - Returns: A `Data` object containing the recorded audio in the specified format.
     ///
     /// - Throws: Errors that occur during the process of writing the audio data to a file and reading it back.
-    ///
-    /// - Note: The method uses an asynchronous continuation to handle the asynchronous nature of stopping the recording and processing the audio data.
-    /// Ensure that `isRecording` is true before calling this method, as it will throw an error if no recording is active.
     @MainActor
     func stopRecording() async throws -> Data {
         defer {
@@ -98,10 +148,9 @@ final class AudioRecorder: @unchecked Sendable {
             throw AudioRecorderError.notRecordingMode
         }
 
+        // Remove tap only — keep engine running
         let (buffers, targetFormat) = mutableState.withLockUnchecked { state -> ([AVAudioPCMBuffer], AVAudioFormat?) in
             state.audioEngine?.inputNode.removeTap(onBus: 0)
-            state.audioEngine?.stop()
-            state.audioEngine = nil
             return (state.recordedBuffers, state.targetFormat)
         }
 
@@ -129,6 +178,30 @@ extension AudioRecorder {
         return await AVAudioApplication.requestRecordPermission()
     }
 
+    /// Installs a recording tap on the engine's input node.
+    private func installTap(
+        on engine: AVAudioEngine,
+        converter: AVAudioConverter,
+        format: AVAudioFormat
+    ) throws {
+        let bus: AVAudioNodeBus = 0
+        let latency: TimeInterval = 0.1
+        let bufferSize = AVAudioFrameCount(format.sampleRate * latency)
+
+        engine.inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
+            guard let self else { return }
+            guard buffer.frameLength > 0 else { return }
+
+            do {
+                let resampledBuffer = try resampleBuffer(buffer, with: converter)
+                mutableState.withLockUnchecked { $0.recordedBuffers.append(resampledBuffer) }
+            } catch {
+                // Skip failed buffer instead of clearing all previously captured audio
+            }
+        }
+    }
+
+    /// Fallback: creates and starts a new audio engine with tap installed.
     private func setupAudioEngine() throws -> AVAudioEngine {
         let audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
@@ -144,26 +217,18 @@ extension AudioRecorder {
             interleaved: false
         ) else { throw AudioRecorderError.recordingFailed }
 
-        mutableState.withLockUnchecked { $0.targetFormat = targetFormat }
+        mutableState.withLockUnchecked { state in
+            state.targetFormat = targetFormat
+            state.originAudioFormat = originAudioFormat
+        }
 
         guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
             throw AudioRecorderError.formatConversionIsNotPossible
         }
 
-        let latency: TimeInterval = 0.1  // 100ms - 400ms supported
-        let bufferSize = AVAudioFrameCount(originAudioFormat.sampleRate * latency)
+        mutableState.withLockUnchecked { $0.converter = converter }
 
-        inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: originAudioFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-
-            do {
-                // Resample audio buffer from 48kHz to 16kHz
-                let resampledBuffer = try resampleBuffer(buffer, with: converter)
-                mutableState.withLockUnchecked { $0.recordedBuffers.append(resampledBuffer) }
-            } catch {
-                mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
-            }
-        }
+        try installTap(on: audioEngine, converter: converter, format: originAudioFormat)
 
         audioEngine.prepare()
         try audioEngine.start()
@@ -199,9 +264,7 @@ extension AudioRecorder {
     private func cancelRecording() {
         mutableState.withLockUnchecked { state in
             state.audioEngine?.inputNode.removeTap(onBus: 0)
-            state.audioEngine?.stop()
-            state.audioEngine = nil
-            state.recordedBuffers.removeAll()
+            // Keep engine running — only remove tap
         }
         MainActor.assumeIsolated {
             isRecording = false
