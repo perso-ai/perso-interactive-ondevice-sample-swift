@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		4389B9BB2F3E97C200F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 4389B9BA2F3E97C200F8D9C1 /* PersoInteractiveOnDeviceSDK */; };
 		4389B9BE2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */; };
 /* End PBXBuildFile section */
 
@@ -28,7 +27,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4389B9BB2F3E97C200F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */,
 				4389B9BE2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -72,7 +70,6 @@
 			);
 			name = PersoInteractiveOnDeviceSample;
 			packageProductDependencies = (
-				4389B9BA2F3E97C200F8D9C1 /* PersoInteractiveOnDeviceSDK */,
 				4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */,
 			);
 			productName = PersoLiveChatOnDevice_macOS;
@@ -383,10 +380,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		4389B9BA2F3E97C200F8D9C1 /* PersoInteractiveOnDeviceSDK */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = PersoInteractiveOnDeviceSDK;
-		};
 		4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 4389B9BC2F3EA3F800F8D9C1 /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */;
