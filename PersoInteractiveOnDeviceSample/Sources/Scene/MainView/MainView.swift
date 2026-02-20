@@ -19,13 +19,6 @@ struct MainView: View {
     init(path: Binding<[Screen]>, configuration: SessionConfiguration) {
         self._viewModel = State(initialValue: MainViewModel(configuration: configuration))
         self._path = path
-
-#if os(iOS)
-        try? PersoInteractive.setAudioSession(
-            category: .playAndRecord,
-            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
-        )
-#endif
     }
 
     // MARK: - Body
@@ -91,6 +84,14 @@ struct MainView: View {
             }
         }
         .navigationBarBackButtonHidden()
+        .task {
+            #if os(iOS)
+            try? PersoInteractive.setAudioSession(
+                category: .playAndRecord,
+                options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            )
+            #endif
+        }
     }
 }
 

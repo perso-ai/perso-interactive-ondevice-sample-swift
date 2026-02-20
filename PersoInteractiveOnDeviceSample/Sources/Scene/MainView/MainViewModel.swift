@@ -201,6 +201,7 @@ import PersoInteractiveOnDeviceSDK
     /// Retries the last sent message after an error
     func retryLastMessage() {
         guard let message = lastSentMessage else { return }
+        processingTask?.cancel()
         chatResponseState = .idle
         processingTask = Task { [weak self] in
             await self?.processConversation(message: message)
@@ -301,14 +302,11 @@ extension MainViewModel {
         // closure. This closure only accesses self via [weak self] and dispatches all
         // state mutations to @MainActor via Task { @MainActor in }.
         nonisolated(unsafe) let statusHandler: (PersoInteractiveSession.SessionStatus) -> Void = { [weak self] sessionStatus in
-            guard let self else { return }
-
             // Monitor session lifecycle
             switch sessionStatus {
-            case .started:
-                break
             case .terminated:
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
                     self.session = nil
                     self.uiState = .terminated
                 }
