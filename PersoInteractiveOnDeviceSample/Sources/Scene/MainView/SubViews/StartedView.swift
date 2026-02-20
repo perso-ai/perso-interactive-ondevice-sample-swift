@@ -159,51 +159,70 @@ struct StartedView: View {
         }
     }
 
+    @ViewBuilder
     private var primaryControlButton: some View {
         switch viewModel.aiHumanState {
         case .idle, .transition:
             switch viewModel.processingState {
             case .idle:
                 if viewModel.isRecording {
-                    ControlButton(type: .recording) {
-                        viewModel.recordStopButtonDidTap()
-                    }
+                    ControlButton(
+                        type: .recording,
+                        action: {
+                            viewModel.recordStopButtonDidTap()
+                        }
+                    )
                 } else {
-                    ControlButton(type: .normal("mic.fill")) {
-                        viewModel.recordButtonDidTap()
-                    }
+                    ControlButton(
+                        type: .normal("mic.fill"),
+                        action: {
+                            viewModel.recordButtonDidTap()
+                        }
+                    )
                 }
             case .stt, .llm:
-                ControlButton(type: .normal("ellipsis")) { }
+                ZStack {
+                    Circle()
+                        .fill(Color._0X644AFF.opacity(0.5))
+                        .frame(width: 64, height: 64)
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.regular)
+                }
             }
         case .standby:
             switch viewModel.processingState {
             case .idle:
                 if viewModel.isRecording {
-                    ControlButton(type: .recording) {
-                        viewModel.recordStopButtonDidTap()
-                    }
+                    ControlButton(
+                        type: .recording,
+                        action: {
+                            viewModel.recordStopButtonDidTap()
+                        }
+                    )
                 } else {
-                    ControlButton(type: .normal("mic.fill")) {
-                        viewModel.recordButtonDidTap()
-                    }
+                    ControlButton(
+                        type: .normal("mic.fill"),
+                        action: {
+                            viewModel.recordButtonDidTap()
+                        }
+                    )
                 }
             case .stt, .llm:
-                ControlButton(type: .normal("pause")) {
-                    viewModel.stopSpeechButtonDidTap()
-                }
+                ControlButton(
+                    type: .normal("pause"),
+                    action: {
+                        viewModel.stopSpeechButtonDidTap()
+                    }
+                )
             }
         case .speaking:
-            if viewModel.isRecording {
-                ControlButton(type: .recording) {
-                    viewModel.recordStopButtonDidTap()
-                }
-            } else {
-                ControlButton(type: .normal("mic.fill")) {
+            ControlButton(
+                type: .normal("pause"),
+                action: {
                     viewModel.stopSpeechButtonDidTap()
-                    viewModel.recordButtonDidTap()
                 }
-            }
+            )
         }
     }
 

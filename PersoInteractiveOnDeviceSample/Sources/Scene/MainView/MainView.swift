@@ -58,9 +58,6 @@ struct MainView: View {
             .background(
                 BackgroundView()
             )
-            .overlay(alignment: controlsAlignment) {
-                controlsOverlay
-            }
             .overlay(alignment: .topTrailing) {
                 if viewModel.uiState.isStarted {
                     Button {
@@ -94,109 +91,6 @@ struct MainView: View {
             }
         }
         .navigationBarBackButtonHidden()
-    }
-
-    private var controlsOverlay: some View {
-        VStack(alignment: .center, spacing: 24) {
-            if viewModel.uiState.isStarted {
-                primaryControlButton
-                historyButton
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 40)
-    }
-
-    // MARK: - Control Buttons
-
-    @ViewBuilder
-    private var primaryControlButton: some View {
-        switch viewModel.aiHumanState {
-        case .idle, .transition:
-            switch viewModel.processingState {
-            case .idle:
-                if viewModel.isRecording {
-                    ControlButton(
-                        type: .recording,
-                        action: {
-                            viewModel.recordStopButtonDidTap()
-                        }
-                    )
-                } else {
-                    ControlButton(
-                        type: .normal("mic.fill"),
-                        action: {
-                            viewModel.recordButtonDidTap()
-                        }
-                    )
-                }
-            case .stt, .llm:
-                ZStack {
-                    Circle()
-                        .fill(Color._0X644AFF.opacity(0.5))
-                        .frame(width: 64, height: 64)
-                    ProgressView()
-                        .tint(.white)
-                        .controlSize(.regular)
-                }
-            }
-        case .standby:
-            switch viewModel.processingState {
-            case .idle:
-                if viewModel.isRecording {
-                    ControlButton(
-                        type: .recording,
-                        action: {
-                            viewModel.recordStopButtonDidTap()
-                        }
-                    )
-                } else {
-                    ControlButton(
-                        type: .normal("mic.fill"),
-                        action: {
-                            viewModel.recordButtonDidTap()
-                        }
-                    )
-                }
-            case .stt, .llm:
-                ControlButton(
-                    type: .normal("pause"),
-                    action: {
-                        viewModel.stopSpeechButtonDidTap()
-                    }
-                )
-            }
-        case .speaking:
-            ControlButton(
-                type: .normal("pause"),
-                action: {
-                    viewModel.stopSpeechButtonDidTap()
-                }
-            )
-        }
-    }
-
-    private var historyButton: some View {
-        ControlButton(
-            type: .normal("arrow.counterclockwise"),
-            isEnabled: !viewModel.messages.isEmpty,
-            action: {
-                viewModel.clearHistory()
-            }
-        )
-    }
-
-    // MARK: - Platform-specific Configuration
-
-    private var controlsAlignment: Alignment {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .phone {
-            return .bottomLeading
-        }
-        return .leading
-        #else
-        return .leading
-        #endif
     }
 }
 
