@@ -90,6 +90,9 @@ final class MainViewModel: ObservableObject {
     /// Error toast message for transient user-facing errors
     @Published var errorToast: String?
 
+    /// Whether the session is currently restarting
+    private var isRestarting = false
+
     private var cancellables = Set<AnyCancellable>()
 
     /// Audio recorder for voice input

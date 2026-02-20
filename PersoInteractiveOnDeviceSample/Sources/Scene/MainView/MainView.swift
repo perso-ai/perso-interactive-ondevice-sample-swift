@@ -78,7 +78,7 @@ struct MainView: View {
             .alert("End Session", isPresented: $showEndSessionAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("End", role: .destructive) {
-                    viewModel.stopSession()
+                    PersoInteractive.stopSession()
                     path.removeAll()
                 }
             } message: {

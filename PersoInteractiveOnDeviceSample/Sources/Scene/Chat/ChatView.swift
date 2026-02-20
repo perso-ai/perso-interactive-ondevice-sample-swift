@@ -191,6 +191,14 @@ extension ChatView {
 private struct TypingIndicatorView: View {
     @State private var animating = false
 
+    private var cornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             ForEach(0..<3, id: \.self) { index in
@@ -209,7 +217,7 @@ private struct TypingIndicatorView: View {
         .padding(.vertical, 18)
         .padding(.horizontal, 24)
         .background(Color._0X1C1C1E)
-        .clipShape(RoundedRectangle(cornerRadius: chatBubbleCornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onAppear {
             animating = true
         }
@@ -221,6 +229,22 @@ private struct TypingIndicatorView: View {
 private struct ChatErrorBubbleView: View {
     let message: String
     let onRetry: () -> Void
+
+    private var bubbleCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
+
+    private var retryCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 8 : 12
+        #else
+        12
+        #endif
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -243,13 +267,13 @@ private struct ChatErrorBubbleView: View {
                     .padding(.vertical, 8)
                     .padding(.horizontal, 16)
                     .background(Color.white.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: chatRetryCornerRadius, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: retryCornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 18)
         .background(Color.red.opacity(0.75))
-        .clipShape(RoundedRectangle(cornerRadius: chatBubbleCornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
     }
 }

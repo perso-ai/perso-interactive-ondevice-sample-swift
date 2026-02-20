@@ -9,6 +9,7 @@ struct ControlButton: View {
     let type: ButtonType
     let action: () -> Void
     let isEnabled: Bool
+    @State private var isAnimating = false
 
     enum ButtonType {
         case normal(String)           // icon
@@ -37,6 +38,12 @@ struct ControlButton: View {
             }
         }
 
+        var needsAnimation: Bool {
+            switch self {
+            case .recording: return true
+            case .normal: return false
+            }
+        }
     }
 
     init(
