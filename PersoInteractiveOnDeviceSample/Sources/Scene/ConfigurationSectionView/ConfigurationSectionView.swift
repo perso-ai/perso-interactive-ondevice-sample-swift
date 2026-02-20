@@ -178,8 +178,7 @@ struct ConfigurationSectionView: View {
                 icon: "waveform",
                 iconColor: .blue,
                 title: "Speech to Text",
-                subtitle: viewModel.availableSTTTypes[viewModel.selectedSTTIndex].name,
-                description: "Converts voice input to text"
+                subtitle: viewModel.availableSTTTypes[viewModel.selectedSTTIndex].name
             ) {
                 Picker("STT Model", selection: $viewModel.selectedSTTIndex) {
                     ForEach(viewModel.availableSTTTypes.indices, id: \.self) { index in
@@ -202,8 +201,7 @@ struct ConfigurationSectionView: View {
                 icon: "brain",
                 iconColor: Color._0X644AFF,
                 title: "Language Model",
-                subtitle: viewModel.availableLLMTypes[viewModel.selectedLLMIndex].name,
-                description: "AI language model for conversation"
+                subtitle: viewModel.availableLLMTypes[viewModel.selectedLLMIndex].name
             ) {
                 Picker("LLM Model", selection: $viewModel.selectedLLMIndex) {
                     ForEach(viewModel.availableLLMTypes.indices, id: \.self) { index in
@@ -226,8 +224,7 @@ struct ConfigurationSectionView: View {
                 icon: "text.bubble",
                 iconColor: .orange,
                 title: "Prompt",
-                subtitle: viewModel.availablePrompts[viewModel.selectedPromptIndex].name,
-                description: "System prompt defining AI personality"
+                subtitle: viewModel.availablePrompts[viewModel.selectedPromptIndex].name
             ) {
                 Picker("Prompt", selection: $viewModel.selectedPromptIndex) {
                     ForEach(viewModel.availablePrompts.indices, id: \.self) { index in
@@ -254,9 +251,19 @@ struct ConfigurationSectionView: View {
                     viewModel.availableDocuments.indices.contains($0)
                         ? viewModel.availableDocuments[$0].title
                         : nil
-                } ?? "None",
-                description: "RAG document for contextual knowledge"
+                } ?? "None"
             ) {
+                if viewModel.selectedPromptRequiresDocument {
+                    Text("Required")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.orange, in: Capsule())
+                        .padding(.bottom, 4)
+                }
+
                 Picker("Document", selection: $viewModel.selectedDocumentIndex) {
                     if !viewModel.selectedPromptRequiresDocument {
                         Text("None").tag(nil as Int?)
@@ -281,9 +288,19 @@ struct ConfigurationSectionView: View {
                 icon: "doc.text",
                 iconColor: .cyan,
                 title: "Document",
-                subtitle: "No documents available",
-                description: "RAG document for contextual knowledge"
+                subtitle: "No documents available"
             ) {
+                if viewModel.selectedPromptRequiresDocument {
+                    Text("Required")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.orange, in: Capsule())
+                        .padding(.bottom, 4)
+                }
+
                 Label("Selected prompt requires a document, but none are available",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -301,8 +318,7 @@ struct ConfigurationSectionView: View {
                 icon: "speaker.wave.3",
                 iconColor: .green,
                 title: "Text to Speech",
-                subtitle: ttsSubtitle,
-                description: "Converts AI response to speech"
+                subtitle: ttsSubtitle
             ) {
                 Picker("TTS Model", selection: $viewModel.selectedTTSIndex) {
                     ForEach(viewModel.availableTTSTypes.indices, id: \.self) { index in
@@ -469,100 +485,70 @@ struct ConfigurationSectionView: View {
 // MARK: - Configuration Card Component
 
 /// A reusable card component for each configuration category.
-/// Displays an icon, title, current selection summary, and an expandable picker area.
+/// Displays an icon, title, current selection summary, and a picker area.
 struct ConfigurationCard<Content: View>: View {
 
     let icon: String
     let iconColor: Color
     let title: String
     let subtitle: String
-    let description: String?
     @ViewBuilder let content: () -> Content
-
-    @State private var isExpanded = true
 
     init(
         icon: String,
         iconColor: Color,
         title: String,
         subtitle: String,
-        description: String? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.icon = icon
         self.iconColor = iconColor
         self.title = title
         self.subtitle = subtitle
-        self.description = description
         self.content = content
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Tappable header row
-            Button {
-                withAnimation(.snappy(duration: 0.25)) {
-                    isExpanded.toggle()
+            // Header row
+            HStack(spacing: 12) {
+                // Category icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(iconColor.opacity(0.15))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: icon)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(iconColor)
                 }
-            } label: {
-                HStack(spacing: 12) {
-                    // Category icon
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(iconColor.opacity(0.15))
-                            .frame(width: 36, height: 36)
 
-                        Image(systemName: icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(iconColor)
-                    }
-
-                    // Title and current value
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.primary)
-
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-
-                        if !isExpanded, let description {
-                            Text(description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Spacer()
-
-                    // Expand chevron
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
+                // Title and current value
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
 
-            // Expandable picker content
-            if isExpanded {
-                Divider()
-                    .padding(.leading, 64)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    content()
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            Divider()
+                .padding(.leading, 64)
+
+            VStack(alignment: .leading, spacing: 4) {
+                content()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
