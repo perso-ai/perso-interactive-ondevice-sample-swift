@@ -3,11 +3,12 @@
 //
 
 import Foundation
+import Observation
 
 import PersoInteractiveOnDeviceSDK
 
 @MainActor
-final class ConfigurationSectionViewModel: ObservableObject {
+@Observable final class ConfigurationSectionViewModel {
 
     struct SelectionSnapshot {
         let sttName: String
@@ -20,22 +21,22 @@ final class ConfigurationSectionViewModel: ObservableObject {
 
     let modelStyle: ModelStyle
 
-    @Published var isLoading = true
-    @Published var errorMessage: String?
+    var isLoading = true
+    var errorMessage: String?
 
-    @Published var availableSTTTypes: [STTType] = []
-    @Published var availableLLMTypes: [LLMType] = []
-    @Published var availablePrompts: [Prompt] = []
-    @Published var availableDocuments: [Document] = []
-    @Published var availableTTSTypes: [TTSType] = []
-    @Published var availableMCPServers: [MCPServer] = []
+    var availableSTTTypes: [STTType] = []
+    var availableLLMTypes: [LLMType] = []
+    var availablePrompts: [Prompt] = []
+    var availableDocuments: [Document] = []
+    var availableTTSTypes: [TTSType] = []
+    var availableMCPServers: [MCPServer] = []
 
-    @Published var selectedSTTIndex: Int = 0
-    @Published var selectedLLMIndex: Int = 0
-    @Published var selectedPromptIndex: Int = 0
-    @Published var selectedDocumentIndex: Int?
-    @Published var selectedTTSIndex: Int = 0
-    @Published var selectedMCPServerIndices: Set<Int> = []
+    var selectedSTTIndex: Int = 0
+    var selectedLLMIndex: Int = 0
+    var selectedPromptIndex: Int = 0
+    var selectedDocumentIndex: Int?
+    var selectedTTSIndex: Int = 0
+    var selectedMCPServerIndices: Set<Int> = []
 
     init(modelStyle: ModelStyle) {
         self.modelStyle = modelStyle

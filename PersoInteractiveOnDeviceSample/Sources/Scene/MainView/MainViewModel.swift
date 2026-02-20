@@ -5,11 +5,12 @@
 import AVFAudio
 import Combine
 import Foundation
+import Observation
 
 import PersoInteractiveOnDeviceSDK
 
 @MainActor
-final class MainViewModel: ObservableObject {
+@Observable final class MainViewModel {
 
     // MARK: - State Definitions
 
@@ -58,60 +59,60 @@ final class MainViewModel: ObservableObject {
     private let configuration: SessionConfiguration
 
     /// Current backend processing state
-    @Published var processingState: ProcessingState = .idle
+    var processingState: ProcessingState = .idle
 
     /// Current chat response state for UI feedback
-    @Published var chatResponseState: ChatResponseState = .idle
+    var chatResponseState: ChatResponseState = .idle
 
     /// Last sent message for retry capability
-    @Published private(set) var lastSentMessage: String?
+    private(set) var lastSentMessage: String?
 
     /// Whether chat history is visible (iOS only)
-    @Published var isChatHistoryVisible: Bool = true
+    var isChatHistoryVisible: Bool = true
 
     /// Accumulated streaming response text (shown during streaming)
-    @Published var streamingResponse: String = ""
+    var streamingResponse: String = ""
 
     /// Chat message history
-    @Published var messages: [ChatMessage] = []
+    var messages: [ChatMessage] = []
 
     /// Current AI human state
-    @Published private(set) var aiHumanState: AIHumanState = .idle
+    private(set) var aiHumanState: AIHumanState = .idle
 
     /// Current UI state
-    @Published private(set) var uiState: UIState = .idle
+    private(set) var uiState: UIState = .idle
 
     /// Recording status
-    @Published private(set) var isRecording: Bool = false
+    private(set) var isRecording: Bool = false
 
     /// Loading stage message shown during initialization
-    @Published var loadingMessage: String = "Loading model..."
+    var loadingMessage: String = "Loading model..."
 
     /// Error toast message for transient user-facing errors
-    @Published var errorToast: String?
+    var errorToast: String?
 
     /// Whether the session is currently restarting
-    private var isRestarting = false
+    @ObservationIgnored private var isRestarting = false
 
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     /// Audio recorder for voice input
-    private let recorder = AudioRecorder()
+    @ObservationIgnored private let recorder = AudioRecorder()
 
     /// Task for SDK initialization
-    private var initTask: Task<Void, Never>?
+    @ObservationIgnored private var initTask: Task<Void, Never>?
 
     /// Task for managing async conversation processing
-    private var processingTask: Task<Void, Never>?
+    @ObservationIgnored private var processingTask: Task<Void, Never>?
 
     /// Callback for handling assistant message chunks (for TTS)
-    private(set) var handleAssistantMessage: (String) -> Void = { _ in }
+    @ObservationIgnored private(set) var handleAssistantMessage: (String) -> Void = { _ in }
 
     /// Callback to stop speech
-    var stopSpeech: (() async -> Void)?
+    @ObservationIgnored var stopSpeech: (() async -> Void)?
 
     /// Callback to start recording
-    var startRecording: (() -> Void)?
+    @ObservationIgnored var startRecording: (() -> Void)?
 
     // MARK: - Initialization
 

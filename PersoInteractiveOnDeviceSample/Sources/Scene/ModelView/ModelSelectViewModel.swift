@@ -2,37 +2,38 @@
 //  Copyright © 2025 ESTsoft. All rights reserved.
 //
 
-import Combine
 import Foundation
+import Observation
 
 import PersoInteractiveOnDeviceSDK
 
 /// ViewModel for managing model selection and download state
+@Observable
 @MainActor
-final class ModelSelectViewModel: ObservableObject {
+final class ModelSelectViewModel {
 
     // MARK: - Published Properties
 
     /// List of available model styles
-    @Published var models: [ModelStyle] = []
+    var models: [ModelStyle] = []
 
     /// Download/Update progress for each model item
-    @Published var itemsProgress: [String: Progress] = [:]
+    var itemsProgress: [String: Progress] = [:]
 
     /// Loading state
-    @Published var isLoading: Bool = false
+    var isLoading: Bool = false
 
     /// Error message if fetch fails
-    @Published var errorMessage: String?
+    var errorMessage: String?
 
     /// Error message if download fails
-    @Published var downloadError: String?
+    var downloadError: String?
 
     /// Deleting state
-    @Published var isDeleting: Bool = false
+    var isDeleting: Bool = false
 
-    private var downloadTasks: [String: Task<Void, Never>] = [:]
-    private var completionPollingTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var downloadTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var completionPollingTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Initialization
 
