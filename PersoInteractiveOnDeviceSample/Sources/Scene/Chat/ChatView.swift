@@ -42,14 +42,14 @@ struct ChatView: View {
                 }
             }
             .onChange(of: viewModel.streamingResponse) { _, _ in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     withAnimation(.easeOut(duration: 0.15)) {
                         proxy.scrollTo("streamingBubble", anchor: .bottom)
                     }
                 }
             }
             .onChange(of: viewModel.chatResponseState) { _, newState in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     withAnimation(.easeOut(duration: 0.25)) {
                         switch newState {
                         case .waiting:
