@@ -35,6 +35,9 @@ final class ModelSelectViewModel {
     @ObservationIgnored private var downloadTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var completionPollingTasks: [String: Task<Void, Never>] = [:]
 
+    private static let maxPollingAttempts = 6
+    private static let pollingInterval: Duration = .milliseconds(700)
+
     // MARK: - Initialization
 
     init() { }
@@ -97,11 +100,7 @@ final class ModelSelectViewModel {
 
     /// Cancels an in-progress download for the specified model
     func cancelDownload(for itemID: String) {
-        downloadTasks[itemID]?.cancel()
-        downloadTasks[itemID] = nil
-        completionPollingTasks[itemID]?.cancel()
-        completionPollingTasks[itemID] = nil
-        itemsProgress[itemID] = nil
+        cleanupDownloadState(for: itemID)
     }
 
     // MARK: - Private Methods
@@ -120,33 +119,21 @@ final class ModelSelectViewModel {
                         scheduleCompletionPolling(for: itemID, modelName: modelStyle.name)
                     }
                 case .finished(let updatedModelStyle):
-                    self.itemsProgress[itemID] = nil
-                    self.downloadTasks[itemID] = nil
-                    self.completionPollingTasks[itemID]?.cancel()
-                    self.completionPollingTasks[itemID] = nil
+                    cleanupDownloadState(for: itemID)
                     updateModelStyleStatus(from: updatedModelStyle)
                 }
             }
 
             // Stream이 .finished 없이 정상 종료된 경우 cleanup
             if self.itemsProgress[itemID] != nil {
-                self.itemsProgress[itemID] = nil
-                self.downloadTasks[itemID] = nil
-                self.completionPollingTasks[itemID]?.cancel()
-                self.completionPollingTasks[itemID] = nil
+                cleanupDownloadState(for: itemID)
                 await fetchModelStyles()
             }
 
         } catch is CancellationError {
-            self.itemsProgress[itemID] = nil
-            self.downloadTasks[itemID] = nil
-            self.completionPollingTasks[itemID]?.cancel()
-            self.completionPollingTasks[itemID] = nil
+            cleanupDownloadState(for: itemID)
         } catch {
-            self.itemsProgress[itemID] = nil
-            self.downloadTasks[itemID] = nil
-            self.completionPollingTasks[itemID]?.cancel()
-            self.completionPollingTasks[itemID] = nil
+            cleanupDownloadState(for: itemID)
             downloadError = "Download failed: \(error.localizedDescription)"
         }
     }
@@ -171,26 +158,26 @@ final class ModelSelectViewModel {
     private func pollCompletionStatus(for itemID: String, modelName: String) async {
         defer { completionPollingTasks[itemID] = nil }
 
-        for _ in 0..<6 {
-            guard !Task.isCancelled else {
-                return
-            }
-
-            guard itemsProgress[itemID] != nil else {
-                return
-            }
+        for _ in 0..<Self.maxPollingAttempts {
+            guard !Task.isCancelled else { return }
+            guard itemsProgress[itemID] != nil else { return }
 
             if let refreshedStyle = await fetchModelStyle(named: modelName),
                refreshedStyle.availability == .available {
-                itemsProgress[itemID] = nil
-                downloadTasks[itemID]?.cancel()
-                downloadTasks[itemID] = nil
+                cleanupDownloadState(for: itemID)
                 updateModelStyleStatus(from: refreshedStyle)
                 return
             }
 
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(for: Self.pollingInterval)
         }
+    }
+
+    private func cleanupDownloadState(for itemID: String) {
+        itemsProgress[itemID] = nil
+        downloadTasks[itemID] = nil
+        completionPollingTasks[itemID]?.cancel()
+        completionPollingTasks[itemID] = nil
     }
 
     private func fetchModelStyle(named modelName: String) async -> ModelStyle? {
