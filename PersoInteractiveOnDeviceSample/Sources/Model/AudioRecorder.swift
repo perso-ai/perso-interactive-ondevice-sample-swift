@@ -243,7 +243,7 @@ extension AudioRecorder {
         #if os(iOS) || os(visionOS)
         NotificationCenter.default
             .publisher(for: AVAudioSession.routeChangeNotification)
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 cancelRecording()
@@ -252,7 +252,7 @@ extension AudioRecorder {
 
         NotificationCenter.default
             .publisher(for: AVAudioSession.interruptionNotification)
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 cancelRecording()
