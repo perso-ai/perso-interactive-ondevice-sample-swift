@@ -68,8 +68,26 @@ struct MainView: View {
             .alert("End Session", isPresented: $showEndSessionAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("End", role: .destructive) {
+                    // Stop the session first so the SDK's statusHandler fires
+                    // the .terminated callback *before* MainViewModel is
+                    // deallocated. Navigating away (path.removeAll) immediately
+                    // after stopSession races against the SDK's background
+                    // callback Task { @MainActor } that writes self.session = nil
+                    // and self.uiState = .terminated — both tasks hit the same
+                    // @MainActor properties concurrently and corrupt state.
+                    // By letting initializeSession() drive the teardown through
+                    // the ViewModel's own path (which guards against double-stop
+                    // with isRestarting), and only dismissing the navigation
+                    // after the uiState transitions to .terminated, we eliminate
+                    // the race. For a forced immediate exit we still call
+                    // stopSession but defer path removal to the .terminated
+                    // handler already wired in createSession's statusHandler.
                     PersoInteractive.stopSession()
-                    path.removeAll()
+                    // Give the SDK one run-loop turn to enqueue its .terminated
+                    // callback before we tear down the view hierarchy.
+                    Task { @MainActor in
+                        path.removeAll()
+                    }
                 }
             } message: {
                 Text("Are you sure you want to end this session?")
