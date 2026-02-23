@@ -175,6 +175,7 @@ final class ModelSelectViewModel {
 
     private func cleanupDownloadState(for itemID: String) {
         itemsProgress[itemID] = nil
+        downloadTasks[itemID]?.cancel()
         downloadTasks[itemID] = nil
         completionPollingTasks[itemID]?.cancel()
         completionPollingTasks[itemID] = nil
