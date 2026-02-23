@@ -35,33 +35,27 @@ struct ChatView: View {
             .onChange(of: viewModel.messages) { oldValue, newValue in
                 guard let lastItemID = newValue.last?.id else { return }
 
-                Task { @MainActor in
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo(lastItemID, anchor: .bottom)
-                    }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    proxy.scrollTo(lastItemID, anchor: .bottom)
                 }
             }
             .onChange(of: viewModel.streamingResponse) { _, _ in
-                Task { @MainActor in
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        proxy.scrollTo("streamingBubble", anchor: .bottom)
-                    }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo("streamingBubble", anchor: .bottom)
                 }
             }
             .onChange(of: viewModel.chatResponseState) { _, newState in
-                Task { @MainActor in
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        switch newState {
-                        case .waiting:
-                            proxy.scrollTo("typingIndicator", anchor: .bottom)
-                        case .streaming:
-                            proxy.scrollTo("streamingBubble", anchor: .bottom)
-                        case .error:
-                            proxy.scrollTo("errorBubble", anchor: .bottom)
-                        case .idle:
-                            if let lastID = viewModel.messages.last?.id {
-                                proxy.scrollTo(lastID, anchor: .bottom)
-                            }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    switch newState {
+                    case .waiting:
+                        proxy.scrollTo("typingIndicator", anchor: .bottom)
+                    case .streaming:
+                        proxy.scrollTo("streamingBubble", anchor: .bottom)
+                    case .error:
+                        proxy.scrollTo("errorBubble", anchor: .bottom)
+                    case .idle:
+                        if let lastID = viewModel.messages.last?.id {
+                            proxy.scrollTo(lastID, anchor: .bottom)
                         }
                     }
                 }
@@ -138,14 +132,15 @@ struct ChatView: View {
                 if newMessage.isEmpty {
                     Text("Type a message...")
                         .foregroundStyle(.secondary)
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
+                        .padding(.leading, 4)
                 }
 
                 TextField("", text: $newMessage)
                     .textFieldStyle(.plain)
                     .focused($isTextFieldFocused)
                     .padding(.vertical)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.black)
                     .font(.system(size: 24))
                     .autocorrectionDisabled()
                     .submitLabel(.send)
