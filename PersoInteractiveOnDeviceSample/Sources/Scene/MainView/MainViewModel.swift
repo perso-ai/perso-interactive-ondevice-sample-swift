@@ -239,6 +239,23 @@ extension MainViewModel {
         messages.removeAll()
     }
 
+    /// Clears the conversation (stops processing, resets state, clears history) while keeping the session alive.
+    ///
+    /// To reset the conversation, clear `session.messages` (the SDK's message history)
+    /// and the local `messages` array (the UI chat history) via `clearHistory()`.
+    /// The session itself is preserved — no teardown or reinitialization is needed.
+    func clearConversation() {
+        processingTask?.cancel()
+        processingTask = nil
+        Task { [weak self] in
+            await self?.stopSpeech?()
+            self?.processingState = .idle
+            self?.chatResponseState = .idle
+            self?.streamingResponse = ""
+            self?.clearHistory()
+        }
+    }
+
     /// Restarts the session completely (stops speech, clears state, reinitializes)
     func restartSession() {
         processingTask?.cancel()

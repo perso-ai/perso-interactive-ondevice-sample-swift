@@ -230,7 +230,7 @@ struct StartedView: View {
         ControlButton(
             type: .normal("arrow.counterclockwise")
         ) {
-            viewModel.restartSession()
+            viewModel.clearConversation()
         }
     }
 
