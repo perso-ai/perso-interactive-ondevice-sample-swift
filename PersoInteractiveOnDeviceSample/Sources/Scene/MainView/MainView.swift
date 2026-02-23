@@ -85,9 +85,7 @@ struct MainView: View {
                     PersoInteractive.stopSession()
                     // Give the SDK one run-loop turn to enqueue its .terminated
                     // callback before we tear down the view hierarchy.
-                    Task {
-                        path.removeAll()
-                    }
+                    path.removeAll()
                 }
             } message: {
                 Text("Are you sure you want to end this session?")
