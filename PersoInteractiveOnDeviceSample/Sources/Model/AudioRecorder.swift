@@ -30,6 +30,7 @@ final class AudioRecorder: @unchecked Sendable {
 
     /// Recording Status
     /// - If you want to continuously observe state changes, you can use a `Publisher`.
+    @MainActor
     @Published public private(set) var isRecording: Bool = false
 
     init() {
