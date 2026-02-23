@@ -124,7 +124,12 @@ import PersoInteractiveOnDeviceSDK
     init(configuration: SessionConfiguration) {
         self.configuration = configuration
 
-        initTask = Task { [weak self] in
+        // @MainActor keeps every property write on the main actor across all
+        // suspension points. Without the explicit annotation the compiler may
+        // resume the task on the cooperative pool after an SDK await, which
+        // creates unsynchronized access to @Observable-tracked properties
+        // (loadingMessage, uiState, etc.) that SwiftUI reads on @MainActor.
+        initTask = Task { @MainActor [weak self] in
             do {
                 guard let self else { return }
 
@@ -281,14 +286,17 @@ extension MainViewModel {
     /// Binds recorder state to view model properties
     private func bind() {
         recorder.$isRecording
-            .receive(on: RunLoop.main)
+            // receive(on: RunLoop.main) is NOT the same as @MainActor isolation.
+            // Replace it with receive(on: DispatchQueue.main) which the Combine
+            // scheduler infrastructure maps onto @MainActor, and drop the
+            // assumeIsolated precondition entirely — the sink closure below is
+            // now guaranteed to run under @MainActor so no explicit annotation
+            // is needed.
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] isRecording in
-                MainActor.assumeIsolated {
-                    self?.isRecording = isRecording
-                }
+                self?.isRecording = isRecording
             }
             .store(in: &cancellables)
-
     }
 
     /// Creates a new session with the provided configuration

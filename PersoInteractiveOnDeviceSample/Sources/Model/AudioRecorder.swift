@@ -266,8 +266,18 @@ extension AudioRecorder {
             state.audioEngine?.inputNode.removeTap(onBus: 0)
             // Keep engine running — only remove tap
         }
-        MainActor.assumeIsolated {
-            isRecording = false
+        // Use Task { @MainActor } instead of MainActor.assumeIsolated.
+        // receive(on: RunLoop.main) does not guarantee @MainActor isolation —
+        // it delivers on the main run loop but that is not the same execution
+        // context that the Swift runtime considers @MainActor-isolated.
+        // assumeIsolated is a runtime precondition, not a hop: calling it on
+        // a thread that is merely "main-runloop" but not @MainActor causes
+        // unsynchronized access to the @Published isRecording property, which
+        // corrupts Combine's internal reference graph and crashes in
+        // swift_getObjectType when the runtime tries to read the isa pointer
+        // of a partially-freed object.
+        Task { @MainActor [weak self] in
+            self?.isRecording = false
         }
     }
 
