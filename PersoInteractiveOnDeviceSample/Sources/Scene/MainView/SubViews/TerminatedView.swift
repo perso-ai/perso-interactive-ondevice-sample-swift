@@ -4,8 +4,6 @@
 
 import SwiftUI
 
-import PersoInteractiveOnDeviceSDK
-
 struct TerminatedView: View {
     let retryAction: () -> Void
     let backAction: () -> Void

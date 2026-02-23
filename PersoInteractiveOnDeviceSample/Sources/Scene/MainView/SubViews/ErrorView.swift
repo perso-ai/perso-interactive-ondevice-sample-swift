@@ -4,8 +4,6 @@
 
 import SwiftUI
 
-import PersoInteractiveOnDeviceSDK
-
 struct ErrorView: View {
     let errorMessage: String
     let retryAction: () -> Void
