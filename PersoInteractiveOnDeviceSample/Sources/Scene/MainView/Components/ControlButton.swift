@@ -105,13 +105,11 @@ struct ControlButton: View {
     }
 
     private func startAnimation() {
-        if case .recording = type {
-            withAnimation(
-                .easeInOut(duration: 0.8)
-                .repeatForever(autoreverses: true)
-            ) {
-                isAnimating = true
-            }
+        withAnimation(
+            .easeInOut(duration: 0.8)
+            .repeatForever(autoreverses: true)
+        ) {
+            isAnimating = true
         }
     }
 }
