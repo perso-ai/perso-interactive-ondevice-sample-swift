@@ -129,6 +129,8 @@ import PersoInteractiveOnDeviceSDK
         // resume the task on the cooperative pool after an SDK await, which
         // creates unsynchronized access to @Observable-tracked properties
         // (loadingMessage, uiState, etc.) that SwiftUI reads on @MainActor.
+        bind()
+
         initTask = Task { @MainActor [weak self] in
             do {
                 guard let self else { return }
@@ -148,9 +150,6 @@ import PersoInteractiveOnDeviceSDK
                 self.loadingMessage = "Creating session..."
                 // STEP 3: Initialize a new session
                 await self.initializeSession()
-
-                // STEP 4: Bind UI state to properties
-                self.bind()
             } catch {
                 guard let self else { return }
                 self.uiState = .error("initialization occured an error: \(error).\nPlease try again.")
@@ -286,12 +285,6 @@ extension MainViewModel {
     /// Binds recorder state to view model properties
     private func bind() {
         recorder.$isRecording
-            // receive(on: RunLoop.main) is NOT the same as @MainActor isolation.
-            // Replace it with receive(on: DispatchQueue.main) which the Combine
-            // scheduler infrastructure maps onto @MainActor, and drop the
-            // assumeIsolated precondition entirely — the sink closure below is
-            // now guaranteed to run under @MainActor so no explicit annotation
-            // is needed.
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isRecording in
                 self?.isRecording = isRecording
