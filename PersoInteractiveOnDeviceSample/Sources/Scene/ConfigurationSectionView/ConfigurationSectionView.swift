@@ -99,9 +99,9 @@ struct ConfigurationSectionView: View {
             startSessionButton
                 .padding(.top, 4)
         }
-        .onChange(of: viewModel.selectedPromptIndex) { _, _ in
-            if viewModel.selectedPromptRequiresDocument && viewModel.selectedDocumentIndex == nil {
-                viewModel.selectedDocumentIndex = viewModel.availableDocuments.indices.first
+        .onChange(of: viewModel.selectedPrompt) { _, _ in
+            if viewModel.selectedPromptRequiresDocument && viewModel.selectedDocument == nil {
+                viewModel.selectedDocument = viewModel.availableDocuments.first
             }
         }
     }
@@ -178,12 +178,12 @@ struct ConfigurationSectionView: View {
                 icon: "waveform",
                 iconColor: .blue,
                 title: "Speech to Text",
-                subtitle: viewModel.availableSTTTypes[viewModel.selectedSTTIndex].name
+                subtitle: viewModel.selectedSTT?.name ?? ""
             ) {
-                Picker("STT Model", selection: $viewModel.selectedSTTIndex) {
-                    ForEach(viewModel.availableSTTTypes.indices, id: \.self) { index in
-                        Text(viewModel.availableSTTTypes[index].name)
-                            .tag(index)
+                Picker("STT Model", selection: $viewModel.selectedSTT) {
+                    ForEach(viewModel.availableSTTTypes, id: \.self) { sttType in
+                        Text(sttType.name)
+                            .tag(sttType as STTType?)
                     }
                 }
                 .pickerStyle(.menu)
@@ -201,12 +201,12 @@ struct ConfigurationSectionView: View {
                 icon: "brain",
                 iconColor: Color._0X644AFF,
                 title: "Language Model",
-                subtitle: viewModel.availableLLMTypes[viewModel.selectedLLMIndex].name
+                subtitle: viewModel.selectedLLM?.name ?? ""
             ) {
-                Picker("LLM Model", selection: $viewModel.selectedLLMIndex) {
-                    ForEach(viewModel.availableLLMTypes.indices, id: \.self) { index in
-                        Text(viewModel.availableLLMTypes[index].name)
-                            .tag(index)
+                Picker("LLM Model", selection: $viewModel.selectedLLM) {
+                    ForEach(viewModel.availableLLMTypes, id: \.self) { llmType in
+                        Text(llmType.name)
+                            .tag(llmType as LLMType?)
                     }
                 }
                 .pickerStyle(.menu)
@@ -224,12 +224,12 @@ struct ConfigurationSectionView: View {
                 icon: "text.bubble",
                 iconColor: .orange,
                 title: "Prompt",
-                subtitle: viewModel.availablePrompts[viewModel.selectedPromptIndex].name
+                subtitle: viewModel.selectedPrompt?.name ?? ""
             ) {
-                Picker("Prompt", selection: $viewModel.selectedPromptIndex) {
-                    ForEach(viewModel.availablePrompts.indices, id: \.self) { index in
-                        Text(viewModel.availablePrompts[index].name)
-                            .tag(index)
+                Picker("Prompt", selection: $viewModel.selectedPrompt) {
+                    ForEach(viewModel.availablePrompts, id: \.self) { prompt in
+                        Text(prompt.name)
+                            .tag(prompt as Prompt?)
                     }
                 }
                 .pickerStyle(.menu)
@@ -247,11 +247,7 @@ struct ConfigurationSectionView: View {
                 icon: "doc.text",
                 iconColor: .cyan,
                 title: "Document",
-                subtitle: viewModel.selectedDocumentIndex.flatMap {
-                    viewModel.availableDocuments.indices.contains($0)
-                        ? viewModel.availableDocuments[$0].title
-                        : nil
-                } ?? "None"
+                subtitle: viewModel.selectedDocument?.title ?? "None"
             ) {
                 if viewModel.selectedPromptRequiresDocument {
                     Text("Required")
@@ -264,13 +260,13 @@ struct ConfigurationSectionView: View {
                         .padding(.bottom, 4)
                 }
 
-                Picker("Document", selection: $viewModel.selectedDocumentIndex) {
+                Picker("Document", selection: $viewModel.selectedDocument) {
                     if !viewModel.selectedPromptRequiresDocument {
-                        Text("None").tag(nil as Int?)
+                        Text("None").tag(nil as Document?)
                     }
-                    ForEach(viewModel.availableDocuments.indices, id: \.self) { index in
-                        Text(viewModel.availableDocuments[index].title)
-                            .tag(index as Int?)
+                    ForEach(viewModel.availableDocuments, id: \.self) { document in
+                        Text(document.title)
+                            .tag(document as Document?)
                     }
                 }
                 .pickerStyle(.menu)
@@ -320,16 +316,16 @@ struct ConfigurationSectionView: View {
                 title: "Text to Speech",
                 subtitle: ttsSubtitle
             ) {
-                Picker("TTS Model", selection: $viewModel.selectedTTSIndex) {
-                    ForEach(viewModel.availableTTSTypes.indices, id: \.self) { index in
-                        Text(viewModel.availableTTSTypes[index].name)
-                            .tag(index)
+                Picker("TTS Model", selection: $viewModel.selectedTTS) {
+                    ForEach(viewModel.availableTTSTypes, id: \.self) { ttsType in
+                        Text(ttsType.name)
+                            .tag(ttsType as TTSType?)
                     }
                 }
                 .pickerStyle(.menu)
                 .tint(.primary)
 
-                if let voice = viewModel.availableTTSTypes[viewModel.selectedTTSIndex].voice {
+                if let voice = viewModel.selectedTTS?.voice {
                     Label(voice, systemImage: "person.wave.2")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -340,7 +336,7 @@ struct ConfigurationSectionView: View {
     }
 
     private var ttsSubtitle: String {
-        let tts = viewModel.availableTTSTypes[viewModel.selectedTTSIndex]
+        guard let tts = viewModel.selectedTTS else { return "" }
         if let voice = tts.voice {
             return "\(tts.name) -- \(voice)"
         }
@@ -370,7 +366,7 @@ struct ConfigurationSectionView: View {
                             .font(.subheadline)
                             .fontWeight(.semibold)
 
-                        let selectedCount = viewModel.selectedMCPServerIndices.count
+                        let selectedCount = viewModel.selectedMCPServers.count
                         let totalCount = viewModel.availableMCPServers.count
                         Text("\(selectedCount) of \(totalCount) selected")
                             .font(.caption)
@@ -392,28 +388,28 @@ struct ConfigurationSectionView: View {
 
                 // Server toggles
                 VStack(spacing: 0) {
-                    ForEach(viewModel.availableMCPServers.indices, id: \.self) { index in
+                    ForEach(viewModel.availableMCPServers, id: \.self) { server in
                         Toggle(isOn: Binding(
-                            get: { viewModel.selectedMCPServerIndices.contains(index) },
+                            get: { viewModel.selectedMCPServers.contains(server) },
                             set: { isOn in
                                 if isOn {
-                                    viewModel.selectedMCPServerIndices.insert(index)
+                                    viewModel.selectedMCPServers.insert(server)
                                 } else {
-                                    viewModel.selectedMCPServerIndices.remove(index)
+                                    viewModel.selectedMCPServers.remove(server)
                                 }
                             }
                         )) {
                             HStack(spacing: 10) {
-                                Image(systemName: viewModel.selectedMCPServerIndices.contains(index)
+                                Image(systemName: viewModel.selectedMCPServers.contains(server)
                                        ? "bolt.fill"
                                        : "bolt.slash")
                                     .font(.caption)
-                                    .foregroundStyle(viewModel.selectedMCPServerIndices.contains(index)
+                                    .foregroundStyle(viewModel.selectedMCPServers.contains(server)
                                                      ? .indigo
                                                      : .secondary)
                                     .frame(width: 20)
 
-                                Text(viewModel.availableMCPServers[index].name)
+                                Text(server.name)
                                     .font(.subheadline)
                             }
                         }
@@ -421,7 +417,7 @@ struct ConfigurationSectionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
 
-                        if index < viewModel.availableMCPServers.count - 1 {
+                        if server != viewModel.availableMCPServers.last {
                             Divider()
                                 .padding(.leading, 64)
                         }
