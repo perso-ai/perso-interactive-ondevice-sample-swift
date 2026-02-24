@@ -57,7 +57,6 @@ struct ModelSelectView: View {
         .onChange(of: viewModel.models, initial: true) { _, newValue in
             syncSelectionState(with: newValue)
         }
-        .navigationBarBackButtonHidden()
         .alert("Download Failed", isPresented: Binding(
             get: { viewModel.downloadError != nil },
             set: { if !$0 { viewModel.downloadError = nil } }
@@ -98,14 +97,29 @@ struct ModelSelectView: View {
     // MARK: - Top-level Subviews
 
     private var headerView: some View {
-        VStack(spacing: 8) {
-            Text("Perso Session Setup")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        ZStack {
+            VStack(spacing: 8) {
+                Text("Perso Session Setup")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
 
-            Text("Select a model, then configure the session pipeline")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                Text("Select a model, then configure the session pipeline")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button {
+                    path.removeAll()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color._0X644AFF)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
         }
     }
 
