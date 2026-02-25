@@ -5,6 +5,7 @@
 import SwiftUI
 
 struct IdleView: View {
+    let message: String
     @State private var isAnimating = false
 
     var body: some View {
@@ -26,8 +27,7 @@ struct IdleView: View {
                             .animation(Animation.linear(duration: 1).repeatForever(autoreverses: false), value: isAnimating)
                     )
 
-
-                Text("Loading...")
+                Text(message)
                     .font(.title2)
                     .foregroundStyle(.white)
             }

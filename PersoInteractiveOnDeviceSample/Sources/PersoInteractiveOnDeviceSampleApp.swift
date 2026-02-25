@@ -47,7 +47,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
     private func configureSDK() {
         // STEP 1: Set your API key (required)
         // You can obtain your API key from the developer portal
-        PersoInteractive.apiKey = <#T##String#>
+        PersoInteractive.apiKey = <#YOUR_API_KEY#>
 
         // STEP 2: Configure compute units (optional)
         // .ane - Uses Apple Neural Engine for optimal performance
@@ -59,12 +59,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
 
     /// Returns the appropriate root view based on the platform
     private var rootView: some View {
-        #if os(macOS)
         ContentView()
-            .preferredColorScheme(.light)
-        #else
-        ContentView()
-        #endif
     }
 }
 
@@ -73,6 +68,7 @@ struct PersoInteractiveOnDeviceSampleApp: App {
 #if os(macOS)
 import AppKit
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // Return true to trigger applicationWillTerminate when the last window closes

@@ -5,13 +5,22 @@
 import AVFAudio
 import Combine
 import Foundation
+import Observation
 
 import PersoInteractiveOnDeviceSDK
 
 @MainActor
-final class MainViewModel: ObservableObject {
+@Observable final class MainViewModel {
 
     // MARK: - State Definitions
+
+    /// Represents the chat response state for UI feedback
+    enum ChatResponseState: Equatable {
+        case idle           // No active processing
+        case waiting        // Sent message, waiting for first LLM chunk
+        case streaming      // Receiving response chunks
+        case error(String)  // Error occurred
+    }
 
     /// Represents the overall UI state of the application
     enum UIState {
@@ -46,73 +55,104 @@ final class MainViewModel: ObservableObject {
     /// The active session (SDK core object)
     private var session: PersoInteractiveSession?
 
-    /// The selected model style for the session
-    private var modelStyle: ModelStyle
+    /// The session configuration
+    private let configuration: SessionConfiguration
 
     /// Current backend processing state
-    @Published var processingState: ProcessingState = .idle
+    var processingState: ProcessingState = .idle
+
+    /// Current chat response state for UI feedback
+    var chatResponseState: ChatResponseState = .idle
+
+    /// Last sent message for retry capability
+    private(set) var lastSentMessage: String?
+
+    /// Whether chat history is visible (iOS only)
+    var isChatHistoryVisible: Bool = true
+
+    /// Accumulated streaming response text (shown during streaming)
+    var streamingResponse: String = ""
 
     /// Chat message history
-    @Published var messages: [ChatMessage] = []
+    var messages: [ChatMessage] = []
 
     /// Current AI human state
-    @Published private(set) var aiHumanState: AIHumanState = .idle
+    private(set) var aiHumanState: AIHumanState = .idle
 
     /// Current UI state
-    @Published private(set) var uiState: UIState = .idle
+    private(set) var uiState: UIState = .idle
 
     /// Recording status
-    @Published private(set) var isRecording: Bool = false
+    private(set) var isRecording: Bool = false
 
-    private var cancellables = Set<AnyCancellable>()
+    /// Loading stage message shown during initialization
+    var loadingMessage: String = "Loading model..."
+
+    /// Error toast message for transient user-facing errors
+    var errorToast: String?
+
+    /// Whether the session is currently restarting
+    @ObservationIgnored private var isRestarting = false
+
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     /// Audio recorder for voice input
-    private let recorder = AudioRecorder()
+    @ObservationIgnored private let recorder = AudioRecorder()
 
-    // Available SDK features (fetched from the SDK)
-    private var availableSTTTypes: [STTType] = []
-    private var availableLLMTypes: [LLMType] = []
-    private var availablePrompts: [Prompt] = []
-    private var availableDocuments: [Document] = []
-    private var availableTTSTypes: [TTSType] = []
-    private var availableMCPServers: [MCPServer] = []
+    /// Task for SDK initialization
+    @ObservationIgnored private var initTask: Task<Void, Never>?
 
     /// Task for managing async conversation processing
-    private var processingTask: Task<Void, Never>?
+    @ObservationIgnored private var processingTask: Task<Void, Never>?
 
     /// Callback for handling assistant message chunks (for TTS)
-    private(set) var handleAssistantMessage: (String) -> Void = { _ in }
+    @ObservationIgnored private(set) var handleAssistantMessage: (String) -> Void = { _ in }
 
     /// Callback to stop speech
-    var stopSpeech: (() async -> Void)?
+    @ObservationIgnored var stopSpeech: (() async -> Void)?
 
     /// Callback to start recording
-    var startRecording: (() -> Void)?
+    @ObservationIgnored var startRecording: (() -> Void)?
 
     // MARK: - Initialization
 
     deinit {
+        initTask?.cancel()
         processingTask?.cancel()
     }
 
-    init(modelStyle: ModelStyle) {
-        self.modelStyle = modelStyle
+    init(configuration: SessionConfiguration) {
+        self.configuration = configuration
 
-        Task {
+        // @MainActor keeps every property write on the main actor across all
+        // suspension points. Without the explicit annotation the compiler may
+        // resume the task on the cooperative pool after an SDK await, which
+        // creates unsynchronized access to @Observable-tracked properties
+        // (loadingMessage, uiState, etc.) that SwiftUI reads on @MainActor.
+        bind()
+
+        initTask = Task { @MainActor [weak self] in
             do {
+                guard let self else { return }
+
+                // Prepare audio engine before SDK initialization to secure
+                // the HALC proxy I/O context on macOS.
+                try? self.recorder.prepare()
+
+                self.loadingMessage = "Loading model..."
                 // STEP 1: Load the SDK (prepares models and resources)
                 try await PersoInteractive.load()
 
+                self.loadingMessage = "Warming up..."
                 // STEP 2: Warmup the SDK (optimizes for first use)
                 try await PersoInteractive.warmup()
 
+                self.loadingMessage = "Creating session..."
                 // STEP 3: Initialize a new session
-                await initializeSession()
-
-                // STEP 4: Bind UI state to properties
-                bind()
+                await self.initializeSession()
             } catch {
-                uiState = .error("initialization occured an error: \(error).\nPlease try again.")
+                guard let self else { return }
+                self.uiState = .error("initialization occured an error: \(error).\nPlease try again.")
             }
         }
     }
@@ -122,17 +162,23 @@ final class MainViewModel: ObservableObject {
     /// Initializes or reinitializes the chat session
     /// This demonstrates the complete SDK session setup flow
     func initializeSession() async {
+        // Stop existing session before creating a new one
+        if session != nil {
+            isRestarting = true
+            PersoInteractive.stopSession()
+            session = nil
+        }
+
         uiState = .idle
         aiHumanState = .idle
         processingState = .idle
+        chatResponseState = .idle
+        isChatHistoryVisible = false
 
         clearHistory()
 
         do {
-            // Fetch available SDK features (models, prompts, etc.)
-            try await fetchAvailableFeatures()
-
-            // Create a new session with selected features
+            // Create a new session with the provided configuration
             try await createSession()
         } catch {
             uiState = .error("Unable to create session: \(error.localizedDescription)")
@@ -142,9 +188,30 @@ final class MainViewModel: ObservableObject {
     /// Sends a text message to the LLM
     /// - Parameter message: The user's text message
     func sendMessage(_ message: String) {
+        // Cancel any ongoing task before sending
+        if aiHumanState == .speaking || processingState != .idle {
+            processingTask?.cancel()
+            processingTask = nil
+            Task { await stopSpeech?() }
+            processingState = .idle
+            chatResponseState = .idle
+        }
+
         let userMessage: ChatMessage = .user(message)
         messages.append(userMessage)
+        lastSentMessage = message
 
+        processingTask?.cancel()
+        processingTask = Task { [weak self] in
+            await self?.processConversation(message: message)
+        }
+    }
+
+    /// Retries the last sent message after an error
+    func retryLastMessage() {
+        guard let message = lastSentMessage else { return }
+        processingTask?.cancel()
+        chatResponseState = .idle
         processingTask = Task { [weak self] in
             await self?.processConversation(message: message)
         }
@@ -156,10 +223,6 @@ final class MainViewModel: ObservableObject {
         handleAssistantMessage = callback
     }
 
-    /// Stops the current session
-    func stopSession() {
-        PersoInteractive.stopSession()
-    }
 }
 
 // MARK: - User Actions
@@ -176,6 +239,38 @@ extension MainViewModel {
         messages.removeAll()
     }
 
+    /// Clears the conversation (stops processing, resets state, clears history) while keeping the session alive.
+    ///
+    /// To reset the conversation, clear `session.messages` (the SDK's message history)
+    /// and the local `messages` array (the UI chat history) via `clearHistory()`.
+    /// The session itself is preserved — no teardown or reinitialization is needed.
+    func clearConversation() {
+        processingTask?.cancel()
+        processingTask = nil
+        Task { [weak self] in
+            await self?.stopSpeech?()
+            self?.processingState = .idle
+            self?.chatResponseState = .idle
+            self?.streamingResponse = ""
+            self?.clearHistory()
+        }
+    }
+
+    /// Restarts the session completely (stops speech, clears state, reinitializes)
+    func restartSession() {
+        processingTask?.cancel()
+        processingTask = nil
+        Task {
+            await stopSpeech?()
+            stopSpeech = nil
+            startRecording = nil
+            processingState = .idle
+            chatResponseState = .idle
+            streamingResponse = ""
+            await initializeSession()
+        }
+    }
+
     /// Handles the record button tap (starts voice recording)
     func recordButtonDidTap() {
         _startRecording()
@@ -188,7 +283,16 @@ extension MainViewModel {
 
     /// Updates the AI human avatar state
     func updateHumanState(_ state: AIHumanState) {
+        let previous = self.aiHumanState
         self.aiHumanState = state
+
+        // Reset processingState when speaking finishes and returns to standby/idle
+        if previous == .speaking && (state == .standby || state == .idle) {
+            if processingTask == nil {
+                processingState = .idle
+                chatResponseState = .idle
+            }
+        }
     }
 }
 
@@ -205,63 +309,55 @@ extension MainViewModel {
             .store(in: &cancellables)
     }
 
-    /// Fetches all available SDK features in parallel
-    /// This demonstrates how to query the SDK for available models and resources
-    private func fetchAvailableFeatures() async throws {
-        async let sttTypes = PersoInteractive.fetchAvailableSTTModels()
-        async let llmTypes = PersoInteractive.fetchAvailableLLMModels()
-        async let prompts = PersoInteractive.fetchAvailablePrompts()
-        async let documents = PersoInteractive.fetchAvailableDocuments()
-        async let ttsTypes = PersoInteractive.fetchAvailableTTSModels()
-        async let mcpServers = PersoInteractive.fetchAvailableMCPServers()
-
-        (availableSTTTypes, availableLLMTypes, availablePrompts, availableDocuments, availableTTSTypes, availableMCPServers) = try await (
-            sttTypes, llmTypes, prompts, documents, ttsTypes, mcpServers
-        )
-    }
-
-    /// Creates a new session with selected features
+    /// Creates a new session with the provided configuration
     /// This demonstrates how to configure a session with STT, LLM, and TTS capabilities
     private func createSession() async throws {
-        // Select features to use (using first available for simplicity)
-        let sttType = availableSTTTypes[0]
-        let llmType = availableLLMTypes[0]
-        let prompt = availablePrompts[0]
-        let document = availableDocuments.first
-        let ttsType = availableTTSTypes[0]
-        let mcpServers = availableMCPServers
+        let sttType = configuration.sttType
+        let llmType = configuration.llmType
+        let prompt = configuration.prompt
+        let document = configuration.document
+        let ttsType = configuration.ttsType
+        let mcpServers = configuration.mcpServers
 
         // IMPORTANT: Create session with selected capabilities
         // The order matters: STT -> LLM -> TTS represents the processing pipeline
-        let session = try await PersoInteractive.createSession(
-            for: [
-                // Speech recognition
-                .speechToText(type: sttType),
-                // Language model with system prompt and optional document context
-                .largeLanguageModel(llmType: llmType,
-                                    promptID: prompt.id,
-                                    documentID: document?.id,
-                                    mcpServerIDs: mcpServers.map(\.id)),
-                // Speech synthesis
-                .textToSpeech(type: ttsType)
-            ],
-            modelStyle: modelStyle
-        ) { [weak self] sessionStatus in
-            guard let self else { return }
-
+        // SAFETY: nonisolated(unsafe) is required because the SDK expects a non-Sendable
+        // closure. This closure only accesses self via [weak self] and dispatches all
+        // state mutations to @MainActor via Task { @MainActor in }.
+        nonisolated(unsafe) let statusHandler: (PersoInteractiveSession.SessionStatus) -> Void = { [weak self] sessionStatus in
             // Monitor session lifecycle
             switch sessionStatus {
-            case .started:
-                break
             case .terminated:
-                self.session = nil
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.session = nil
                     self.uiState = .terminated
                 }
             default:
                 break
             }
         }
+
+        // SAFETY: nonisolated(unsafe) is required because Set<SessionCapability> and
+        // modelStyle are non-Sendable types that must cross the @MainActor boundary.
+        nonisolated(unsafe) let capabilities: Set<SessionCapability> = [
+            // Speech recognition
+            .speechToText(type: sttType),
+            // Language model with system prompt and optional document context
+            .largeLanguageModel(llmType: llmType,
+                                promptID: prompt.id,
+                                documentID: document?.id,
+                                mcpServerIDs: mcpServers.map(\.id)),
+            // Speech synthesis
+            .textToSpeech(type: ttsType)
+        ]
+        nonisolated(unsafe) let modelStyle = configuration.modelStyle
+
+        let session = try await PersoInteractive.createSession(
+            for: capabilities,
+            modelStyle: modelStyle,
+            statusHandler: statusHandler
+        )
 
         self.session = session
         self.uiState = .started(session)
@@ -297,6 +393,7 @@ extension MainViewModel {
 
     /// Stops audio recording and processes the recorded audio
     private func stopRecording() {
+        processingTask?.cancel()
         processingTask = Task { [weak self] in
             guard let self else { return }
 
@@ -317,8 +414,11 @@ extension MainViewModel {
         do {
             processingState = .stt
 
+            // SAFETY: nonisolated(unsafe) is required to transfer non-Sendable
+            // PersoInteractiveSession across the @MainActor isolation boundary.
+            nonisolated(unsafe) let sttSession = session
             // STEP 1: Transcribe audio to text using SDK's STT
-            let userText = try await session.transcribeAudio(audio: audio)
+            let userText = try await sttSession.transcribeAudio(audio: audio)
 
             // Add user message to chat history
             let userMessage: ChatMessage = .user(userText)
@@ -328,10 +428,13 @@ extension MainViewModel {
             await processConversation(message: userText)
         } catch PersoInteractiveError.taskCancelled {
             debugPrint("STT task cancelled")
+            chatResponseState = .idle
             processingState = .idle
         } catch {
-            debugPrint("STT conversation error")
+            debugPrint("STT conversation error: \(error)")
+            chatResponseState = .error("Speech recognition failed. Please try again.")
             processingState = .idle
+            errorToast = "Speech recognition failed. Please try again."
         }
 
         processingTask = nil
@@ -347,6 +450,8 @@ extension MainViewModel {
             if processingState != .llm {
                 processingState = .llm
             }
+            chatResponseState = .waiting
+            streamingResponse = ""
 
             // STEP 1: Send message to LLM and get streaming response
             let stream = session.completeChat(
@@ -356,34 +461,51 @@ extension MainViewModel {
                 ]
             )
 
+            var isFirstChunk = true
+
             // STEP 2: Process streaming response chunks
             for try await partial in stream {
                 switch partial {
                 case .assistant(let assistantMessage, let finish):
                     // Handle TTS in real-time for each chunk (during streaming)
                     if !finish, let chunk = assistantMessage.chunks.last {
+                        if isFirstChunk {
+                            chatResponseState = .streaming
+                            isFirstChunk = false
+                        }
+                        streamingResponse += chunk
                         handleAssistantMessage(chunk)
                     }
 
                     // Add completed message to UI when streaming finishes
                     if finish {
                         messages.append(partial)
+                        streamingResponse = ""
+                        chatResponseState = .idle
+                        processingState = .idle
                     }
                 default:
                     continue
                 }
             }
 
+            processingState = .idle
+
         } catch PersoInteractiveError.largeLanguageModelStreamingResponseError(let reason) {
             /// If a failure occurs during the LLM stream, display the message up to the processed portion.
             debugPrint("LLM Streaming Error: - \(reason)")
+            chatResponseState = .error("An error occurred during response streaming.")
             processingState = .idle
+            errorToast = "Response generation failed. Please try again."
         } catch PersoInteractiveError.taskCancelled {
             debugPrint("LLM Task Cancelled")
+            chatResponseState = .idle
             processingState = .idle
         } catch {
             debugPrint("LLM conversation error: - \(error.localizedDescription)")
+            chatResponseState = .error("An error occurred while processing the response. Please try again.")
             processingState = .idle
+            errorToast = "Conversation error. Please try again."
         }
 
         processingTask = nil

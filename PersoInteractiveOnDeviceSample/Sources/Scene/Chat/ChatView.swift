@@ -11,10 +11,8 @@ import PersoInteractiveOnDeviceSDK
 
 struct ChatView: View {
 
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var viewModel: MainViewModel
+    @Environment(MainViewModel.self) private var viewModel
     @State private var newMessage: String = ""
-    @State private var isTypingMessage: Bool = false
     @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
@@ -37,9 +35,28 @@ struct ChatView: View {
             .onChange(of: viewModel.messages) { oldValue, newValue in
                 guard let lastItemID = newValue.last?.id else { return }
 
-                DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo(lastItemID, anchor: .bottom)
+                withAnimation(.easeOut(duration: 0.25)) {
+                    proxy.scrollTo(lastItemID, anchor: .bottom)
+                }
+            }
+            .onChange(of: viewModel.streamingResponse) { _, _ in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo("streamingBubble", anchor: .bottom)
+                }
+            }
+            .onChange(of: viewModel.chatResponseState) { _, newState in
+                withAnimation(.easeOut(duration: 0.25)) {
+                    switch newState {
+                    case .waiting:
+                        proxy.scrollTo("typingIndicator", anchor: .bottom)
+                    case .streaming:
+                        proxy.scrollTo("streamingBubble", anchor: .bottom)
+                    case .error:
+                        proxy.scrollTo("errorBubble", anchor: .bottom)
+                    case .idle:
+                        if let lastID = viewModel.messages.last?.id {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -50,12 +67,37 @@ struct ChatView: View {
     }
 
     private var messagesContent: some View {
-        VStack(alignment: .leading, spacing: 40) {
+        VStack(alignment: .leading, spacing: 20) {
             ForEach(viewModel.messages.filter { message in
                 message.role != .tool &&
                 (message.role == .user || (message.role == .assistant && message.content != nil && !message.content!.isEmpty))
             }) { message in
                 messageRow(for: message)
+            }
+
+            // Typing indicator when waiting
+            if viewModel.chatResponseState == .waiting {
+                TypingIndicatorView()
+                    .id("typingIndicator")
+            }
+
+            // Streaming response bubble
+            if viewModel.chatResponseState == .streaming,
+               !viewModel.streamingResponse.isEmpty {
+                HStack(alignment: .bottom, spacing: 12) {
+                    BubbleView(text: viewModel.streamingResponse, style: .assistant, showContextMenu: false)
+                        .padding(.trailing)
+                    Spacer(minLength: 0)
+                }
+                .id("streamingBubble")
+            }
+
+            // Error bubble
+            if case .error(let errorMessage) = viewModel.chatResponseState {
+                ChatErrorBubbleView(message: errorMessage) {
+                    viewModel.retryLastMessage()
+                }
+                .id("errorBubble")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -65,10 +107,10 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 12) {
             if message.role == .user {
                 Spacer(minLength: 0)
-                ChatBubbleView(message: message)
+                BubbleView(text: message.content ?? "", style: .user)
                     .padding(.leading)
             } else if message.role == .assistant {
-                ChatBubbleView(message: message)
+                BubbleView(text: message.content ?? "", style: .assistant)
                     .padding(.trailing)
                 Spacer(minLength: 0)
             }
@@ -77,9 +119,7 @@ struct ChatView: View {
 
     private func sendMessage() {
         guard !newMessage.isEmpty else { return }
-        guard !viewModel.isRecording else { return }  // 녹음 중이 아닐 때
-        guard viewModel.aiHumanState != .speaking else { return }  // AI가 말하고 있지 않을 때
-        guard viewModel.processingState == .idle else { return } // 처리 중이 아닐 때
+        guard !viewModel.isRecording else { return }
 
         viewModel.sendMessage(newMessage)
         newMessage = ""
@@ -87,12 +127,13 @@ struct ChatView: View {
 
     private var messageInputView: some View {
         HStack {
-            /// TextField의 prompt에 foregroundStyle 를 설정하게 되면, macOS에서 적용되지 않는 문제
+            /// Workaround: foregroundStyle on TextField prompt doesn't apply on macOS
             ZStack(alignment: .leading) {
                 if newMessage.isEmpty {
-                    Text("메시지를 입력해 주세요.")
-                        .foregroundStyle(._0XB6B6B6)
-                        .font(.system(size: 24))
+                    Text("Type a message...")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 20))
+                        .padding(.leading, 4)
                 }
 
                 TextField("", text: $newMessage)
@@ -104,32 +145,130 @@ struct ChatView: View {
                     .autocorrectionDisabled()
                     .submitLabel(.send)
                     .onSubmit(sendMessage)
-                    .onChange(of: newMessage) { oldValue, newValue in
-                        let isTyping = !newValue.isEmpty
-                        if isTypingMessage != isTyping {
-                            withAnimation {
-                                isTypingMessage = isTyping
-                            }
-                        }
-                    }
             }
 
-            if !newMessage.isEmpty {
-                Button(action: sendMessage) {
-                    Image(.sendMessage)
-                        .resizable()
-                        .frame(width: 44, height: 44)
-                        .foregroundStyle(.white, ._0X1C1C1E)
-                        .symbolVariant(.fill.circle)
-                        .symbolEffect(.bounce, value: isTypingMessage)
-                }
-                .buttonStyle(.plain)
+            Button(action: sendMessage) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.white, newMessage.isEmpty ? Color._0XB6B6B6 : Color._0X1C1C1E)
             }
+            .buttonStyle(.plain)
+            .disabled(newMessage.isEmpty)
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 8)
         .background(Capsule(style: .continuous).fill(._0XF3F3F1))
     }
 }
 
+// MARK: - Corner Radius Helper
 
+extension ChatView {
+    private var chatBubbleCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
 
+    private var chatRetryCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 8 : 12
+        #else
+        12
+        #endif
+    }
+}
+
+// MARK: - Typing Indicator
+
+private struct TypingIndicatorView: View {
+    @State private var animating = false
+
+    private var cornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.white.opacity(0.8))
+                    .frame(width: 12, height: 12)
+                    .offset(y: animating ? -6 : 0)
+                    .animation(
+                        .easeInOut(duration: 0.5)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(index) * 0.15),
+                        value: animating
+                    )
+            }
+        }
+        .padding(.vertical, 18)
+        .padding(.horizontal, 24)
+        .background(Color._0X1C1C1E)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .onAppear {
+            animating = true
+        }
+    }
+}
+
+// MARK: - Error Bubble
+
+private struct ChatErrorBubbleView: View {
+    let message: String
+    let onRetry: () -> Void
+
+    private var bubbleCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 12 : 20
+        #else
+        20
+        #endif
+    }
+
+    private var retryCornerRadius: CGFloat {
+        #if os(iOS) || os(visionOS)
+        UIDevice.current.userInterfaceIdiom == .phone ? 8 : 12
+        #else
+        12
+        #endif
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.white)
+                    .font(.system(size: 18))
+
+                Text(message)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button(action: onRetry) {
+                Text("Retry")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .background(Color.white.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: retryCornerRadius, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .background(Color.red.opacity(0.75))
+        .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
+    }
+}

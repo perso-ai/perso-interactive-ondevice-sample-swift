@@ -5,19 +5,32 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
+import os
 
-final class AudioRecorder {
+// SAFETY: @unchecked Sendable is justified because all shared mutable state
+// is protected by `mutableState: OSAllocatedUnfairLock<MutableState>`.
+// isRecording is only mutated from main-thread contexts.
+//
+// When adopting Swift 6.1+, `Mutex.withLockUnchecked` can be used
+// instead of `OSAllocatedUnfairLock` to handle non-Sendable types in the same way.
+final class AudioRecorder: @unchecked Sendable {
 
     private var cancellables = Set<AnyCancellable>()
 
-    private var audioEngine: AVAudioEngine?
     private let targetSampleRate: Double = 16000
-    private var targetFormat: AVAudioFormat?
 
-    private var recordedBuffers: [AVAudioPCMBuffer] = []
+    private struct MutableState {
+        var audioEngine: AVAudioEngine?
+        var recordedBuffers: [AVAudioPCMBuffer] = []
+        var targetFormat: AVAudioFormat?
+        var converter: AVAudioConverter?
+        var originAudioFormat: AVAudioFormat?
+    }
+    private let mutableState = OSAllocatedUnfairLock(uncheckedState: MutableState())
 
     /// Recording Status
     /// - If you want to continuously observe state changes, you can use a `Publisher`.
+    @MainActor
     @Published public private(set) var isRecording: Bool = false
 
     init() {
@@ -25,15 +38,55 @@ final class AudioRecorder {
     }
 
     deinit {
-        Task { [weak self] in
-            try? await self?.stopRecording()
+        mutableState.withLockUnchecked { state in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            state.audioEngine?.stop()
+            state.audioEngine = nil
+            state.recordedBuffers.removeAll()
         }
     }
 
+    // MARK: - Engine Lifecycle
+
+    /// Prepares and starts the audio engine to secure the HALC proxy I/O context
+    /// before other audio consumers (e.g., SDK TTS) occupy the audio hardware.
+    ///
+    /// Call this **before** initializing the SDK session.
+    func prepare() throws {
+        let audioEngine = AVAudioEngine()
+        let inputNode = audioEngine.inputNode
+        let bus: AVAudioNodeBus = 0
+
+        let originAudioFormat = inputNode.outputFormat(forBus: bus)
+
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: targetSampleRate,
+            channels: AVAudioChannelCount(1),
+            interleaved: false
+        ) else { throw AudioRecorderError.recordingFailed }
+
+        guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
+            throw AudioRecorderError.formatConversionIsNotPossible
+        }
+
+        audioEngine.prepare()
+        try audioEngine.start()
+
+        mutableState.withLockUnchecked { state in
+            state.audioEngine = audioEngine
+            state.targetFormat = targetFormat
+            state.converter = converter
+            state.originAudioFormat = originAudioFormat
+        }
+    }
+
+    // MARK: - Recording
+
     /// Starts recording audio from the microphone.
     ///
-    /// This method sets up an audio tap on the input node of the audio engine, converts the audio buffer to the desired format,
-    /// and stores it for further processing. The recording process starts the audio engine and begins capturing audio data.
+    /// If the engine was pre-started via `prepare()`, installs a tap on the existing engine.
+    /// Otherwise, creates and starts a new engine (fallback).
     ///
     /// - Throws:
     ///   - `AudioRecorderError.microphonePermissionDenied`: If microphone permission is not granted.
@@ -41,6 +94,7 @@ final class AudioRecorder {
     ///   - `AudioRecorderError.recordingFailed`: If there is a failure in starting the audio engine.
     ///
     /// - Note: Ensure that `isRecording` is checked before calling this method to avoid attempting to start multiple recordings simultaneously.
+    @MainActor
     func startRecording() async throws {
         guard await checkMicrophonePermission() else {
             throw AudioRecorderError.microphonePermissionDenied
@@ -56,58 +110,65 @@ final class AudioRecorder {
 
         guard !isRecording else { throw AudioRecorderError.alreadyRecording }
 
-        recordedBuffers.removeAll()
-        audioEngine = try setupAudioEngine()
+        let (engine, converter, originFormat) = mutableState.withLockUnchecked { state in
+            state.recordedBuffers.removeAll()
+            return (state.audioEngine, state.converter, state.originAudioFormat)
+        }
+
+        if let engine, let converter, let originFormat {
+            // Engine already prepared — restart if needed, then install tap
+            if !engine.isRunning {
+                engine.prepare()
+                try engine.start()
+            }
+            try installTap(on: engine, converter: converter, format: originFormat)
+        } else {
+            // Fallback: create and start a new engine
+            let newEngine = try setupAudioEngine()
+            mutableState.withLockUnchecked { $0.audioEngine = newEngine }
+        }
+
         isRecording = true
     }
 
     /// Stops the ongoing audio recording and returns the recorded audio data in `Data` format.
     ///
-    /// This method stops the audio engine, removes the audio tap from the input node, and processes the captured audio buffers.
-    /// The audio data is then converted into the specified format and returned as a `Data` object.
+    /// Removes the tap but keeps the engine running for future recordings.
     ///
     /// - Returns: A `Data` object containing the recorded audio in the specified format.
     ///
     /// - Throws: Errors that occur during the process of writing the audio data to a file and reading it back.
-    ///
-    /// - Note: The method uses an asynchronous continuation to handle the asynchronous nature of stopping the recording and processing the audio data.
-    /// Ensure that `isRecording` is true before calling this method, as it will throw an error if no recording is active.
+    @MainActor
     func stopRecording() async throws -> Data {
         defer {
-            self.recordedBuffers.removeAll()
+            mutableState.withLockUnchecked { $0.recordedBuffers.removeAll() }
             self.isRecording = false
         }
 
-        let audioData = try await Task { [weak self] in
-            guard let self = self else {
-                throw AudioRecorderError.recordingFailed
-            }
+        guard isRecording else {
+            throw AudioRecorderError.notRecordingMode
+        }
 
-            guard self.isRecording else {
-                throw AudioRecorderError.notRecordingMode
-            }
+        // Remove tap only — keep engine running
+        let (buffers, targetFormat) = mutableState.withLockUnchecked { state -> ([AVAudioPCMBuffer], AVAudioFormat?) in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            return (state.recordedBuffers, state.targetFormat)
+        }
 
-            self.audioEngine?.inputNode.removeTap(onBus: 0)
-            self.audioEngine?.stop()
-            self.audioEngine = nil
+        guard !buffers.isEmpty,
+              let targetFormat,
+              let buffer = AVAudioPCMBuffer(buffers: buffers, format: targetFormat)
+        else {
+            throw AudioRecorderError.notExistRecordingData
+        }
 
-            guard !self.recordedBuffers.isEmpty,
-                  let targetFormat = self.targetFormat,
-                  let buffer = AVAudioPCMBuffer(buffers: self.recordedBuffers, format: targetFormat)
-            else {
-                throw AudioRecorderError.notExistRecordingData
-            }
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "temp_recording.wav")
 
-            let url = FileManager.default
-                .urls(for: .documentDirectory, in: .userDomainMask)
-                .first!
-                .appending(path: "temp.wav")
-
-            try self.writeToAudioFile(buffer, url: url)
-            return try Data(contentsOf: url)
-        }.value
-
-        return audioData
+        try writeToAudioFile(buffer, url: url)
+        let data = try Data(contentsOf: url)
+        try? FileManager.default.removeItem(at: url)
+        return data
     }
 
 }
@@ -118,6 +179,30 @@ extension AudioRecorder {
         return await AVAudioApplication.requestRecordPermission()
     }
 
+    /// Installs a recording tap on the engine's input node.
+    private func installTap(
+        on engine: AVAudioEngine,
+        converter: AVAudioConverter,
+        format: AVAudioFormat
+    ) throws {
+        let bus: AVAudioNodeBus = 0
+        let latency: TimeInterval = 0.1
+        let bufferSize = AVAudioFrameCount(format.sampleRate * latency)
+
+        engine.inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
+            guard let self else { return }
+            guard buffer.frameLength > 0 else { return }
+
+            do {
+                let resampledBuffer = try resampleBuffer(buffer, with: converter)
+                mutableState.withLockUnchecked { $0.recordedBuffers.append(resampledBuffer) }
+            } catch {
+                // Skip failed buffer instead of clearing all previously captured audio
+            }
+        }
+    }
+
+    /// Fallback: creates and starts a new audio engine with tap installed.
     private func setupAudioEngine() throws -> AVAudioEngine {
         let audioEngine = AVAudioEngine()
         let inputNode = audioEngine.inputNode
@@ -133,26 +218,18 @@ extension AudioRecorder {
             interleaved: false
         ) else { throw AudioRecorderError.recordingFailed }
 
-        self.targetFormat = targetFormat
+        mutableState.withLockUnchecked { state in
+            state.targetFormat = targetFormat
+            state.originAudioFormat = originAudioFormat
+        }
 
         guard let converter = AVAudioConverter(from: originAudioFormat, to: targetFormat) else {
             throw AudioRecorderError.formatConversionIsNotPossible
         }
 
-        let latency: TimeInterval = 0.1  // 100ms - 400ms supported
-        let bufferSize = AVAudioFrameCount(originAudioFormat.sampleRate * latency)
+        mutableState.withLockUnchecked { $0.converter = converter }
 
-        inputNode.installTap(onBus: bus, bufferSize: bufferSize, format: originAudioFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-
-            do {
-                // Resample audio buffer from 48kHz to 16kHz
-                let resampledBuffer = try resampleBuffer(buffer, with: converter)
-                recordedBuffers.append(resampledBuffer)
-            } catch {
-                self.recordedBuffers.removeAll()
-            }
-        }
+        try installTap(on: audioEngine, converter: converter, format: originAudioFormat)
 
         audioEngine.prepare()
         try audioEngine.start()
@@ -168,7 +245,7 @@ extension AudioRecorder {
         NotificationCenter.default
             .publisher(for: AVAudioSession.routeChangeNotification)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
+            .sink { [weak self] _ in
                 guard let self else { return }
                 cancelRecording()
             }
@@ -177,7 +254,7 @@ extension AudioRecorder {
         NotificationCenter.default
             .publisher(for: AVAudioSession.interruptionNotification)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
+            .sink { [weak self] _ in
                 guard let self else { return }
                 cancelRecording()
             }
@@ -186,11 +263,23 @@ extension AudioRecorder {
     }
 
     private func cancelRecording() {
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
-        recordedBuffers.removeAll()
-        isRecording = false
+        mutableState.withLockUnchecked { state in
+            state.audioEngine?.inputNode.removeTap(onBus: 0)
+            // Keep engine running — only remove tap
+        }
+        // Use Task { @MainActor } instead of MainActor.assumeIsolated.
+        // receive(on: RunLoop.main) does not guarantee @MainActor isolation —
+        // it delivers on the main run loop but that is not the same execution
+        // context that the Swift runtime considers @MainActor-isolated.
+        // assumeIsolated is a runtime precondition, not a hop: calling it on
+        // a thread that is merely "main-runloop" but not @MainActor causes
+        // unsynchronized access to the @Published isRecording property, which
+        // corrupts Combine's internal reference graph and crashes in
+        // swift_getObjectType when the runtime tries to read the isa pointer
+        // of a partially-freed object.
+        Task { @MainActor [weak self] in
+            self?.isRecording = false
+        }
     }
 
     private func writeToAudioFile(_ buffer: AVAudioPCMBuffer, url: URL) throws {
@@ -219,6 +308,10 @@ extension AudioRecorder {
             throw AudioRecorderError.unsupportedFormat
         }
 
+        // SAFETY: nonisolated(unsafe) is required because AVAudioPCMBuffer is not Sendable.
+        // The buffer is only read (never mutated) in the inputBlock closure, and its
+        // lifetime is scoped to this function call.
+        nonisolated(unsafe) let buffer = buffer
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
             if buffer.frameLength == 0 {
                 outStatus.pointee = .endOfStream

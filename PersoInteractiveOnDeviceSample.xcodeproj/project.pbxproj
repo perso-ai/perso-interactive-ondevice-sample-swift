@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		76725B6E2EC5B34000B9F3BE /* PersoInteractiveOnDeviceSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 76725B6D2EC5B34000B9F3BE /* PersoInteractiveOnDeviceSDK */; };
+		4389B9BE2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				76725B6E2EC5B34000B9F3BE /* PersoInteractiveOnDeviceSDK in Frameworks */,
+				4389B9BE2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +70,7 @@
 			);
 			name = PersoInteractiveOnDeviceSample;
 			packageProductDependencies = (
-				76725B6D2EC5B34000B9F3BE /* PersoInteractiveOnDeviceSDK */,
+				4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */,
 			);
 			productName = PersoLiveChatOnDevice_macOS;
 			productReference = D6AF38682DB0897300E2239F /* PersoInteractiveOnDeviceSample.app */;
@@ -102,7 +102,7 @@
 			mainGroup = D6AF385F2DB0897300E2239F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				76725B6C2EC5B34000B9F3BE /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */,
+				4389B9BC2F3EA3F800F8D9C1 /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D6AF38692DB0897300E2239F /* Products */;
@@ -292,7 +292,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2.0;
 			};
@@ -339,7 +339,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 2.0;
 			};
@@ -369,7 +369,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		76725B6C2EC5B34000B9F3BE /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */ = {
+		4389B9BC2F3EA3F800F8D9C1 /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/perso-ai/perso-interactive-ondevice-sdk-swift";
 			requirement = {
@@ -380,9 +380,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		76725B6D2EC5B34000B9F3BE /* PersoInteractiveOnDeviceSDK */ = {
+		4389B9BD2F3EA3F800F8D9C1 /* PersoInteractiveOnDeviceSDK */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 76725B6C2EC5B34000B9F3BE /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */;
+			package = 4389B9BC2F3EA3F800F8D9C1 /* XCRemoteSwiftPackageReference "perso-interactive-ondevice-sdk-swift" */;
 			productName = PersoInteractiveOnDeviceSDK;
 		};
 /* End XCSwiftPackageProductDependency section */

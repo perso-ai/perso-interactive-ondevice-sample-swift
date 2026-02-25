@@ -7,8 +7,9 @@ import SwiftUI
 import PersoInteractiveOnDeviceSDK
 
 enum Screen: Hashable {
-    case modelSelectView
-    case main(ModelStyle)
+    case modelSelect
+    case quickStart
+    case main(SessionConfiguration)
 }
 
 struct ContentView: View {
@@ -17,13 +18,15 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ModelSelectView(path: $path)
+            RunModeSelectView(path: $path)
                 .navigationDestination(for: Screen.self) { screen in
                     switch screen {
-                    case .modelSelectView:
+                    case .modelSelect:
                         ModelSelectView(path: $path)
-                    case .main(let modelStyle):
-                        MainView(path: $path, modelStyle: modelStyle)
+                    case .quickStart:
+                        QuickStartView(path: $path)
+                    case .main(let configuration):
+                        MainView(path: $path, configuration: configuration)
                     }
                 }
         }
