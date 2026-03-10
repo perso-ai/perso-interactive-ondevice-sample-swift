@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/perso-ai/perso-interactive-ondevice-sdk-swift",
       "state" : {
-        "revision" : "544a6db15e4f7e5e564e7c0def28b63cd934248b",
-        "version" : "1.0.0"
+        "revision" : "9e6536764863cf3db265e7d282e24e36511f3b88",
+        "version" : "1.1.0"
       }
     }
   ],
